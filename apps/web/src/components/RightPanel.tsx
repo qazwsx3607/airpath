@@ -1,5 +1,6 @@
 import { AlertTriangle, Crosshair, FileText, Flame, Move, PanelRightClose, Trash2 } from "lucide-react";
 import { type RackCoolingMode } from "@airpath/scenario-schema";
+import { generateReportWithViewportScreenshots } from "../reportCapture";
 import { useAirPathStore, type RightTab } from "../store";
 
 const tabs: Array<{ key: RightTab; label: string }> = [
@@ -244,12 +245,11 @@ function Warnings() {
 function ReportTab() {
   const reportHtml = useAirPathStore((state) => state.reportHtml);
   const scenario = useAirPathStore((state) => state.scenario);
-  const generateReport = useAirPathStore((state) => state.generateReport);
   return (
     <section className="panel-section report-panel" data-testid="report-panel">
       <h2>Report Export</h2>
       <div className="button-row">
-        <button type="button" className="primary" onClick={generateReport}>
+        <button type="button" className="primary" onClick={() => void generateReportWithViewportScreenshots()}>
           <FileText size={15} />
           Generate
         </button>

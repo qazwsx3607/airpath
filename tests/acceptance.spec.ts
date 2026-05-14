@@ -25,12 +25,23 @@ test("AirPath GUI self-acceptance flow", async ({ page }) => {
   await page.getByTestId("rack-heat").fill("16");
   await page.getByTestId("create-rack-array").click();
   await expect(page.getByTestId("rack-label").first()).toBeVisible({ timeout: 15_000 });
-  await page.getByTestId("rack-label").first().click();
-  await page.getByTestId("rack-label").nth(1).click({ modifiers: ["Shift"] });
+  await page.getByTestId("rack-label").first().click({ force: true });
+  await page.getByTestId("rack-label").nth(1).click({ modifiers: ["Shift"], force: true });
   await page.getByTestId("selected-rack-heat").fill("18");
   await page.getByTestId("selected-rack-heat").press("Tab");
   await page.getByText("Move and resize").click();
   await page.getByRole("button", { name: "X+" }).click();
+  const rackLabelBox = await page.getByTestId("rack-label").first().boundingBox();
+  expect(rackLabelBox).toBeTruthy();
+  await page.mouse.move(rackLabelBox!.x + rackLabelBox!.width / 2, rackLabelBox!.y + rackLabelBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(rackLabelBox!.x + rackLabelBox!.width / 2 + 40, rackLabelBox!.y + rackLabelBox!.height / 2 + 16, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.getByText(/Dragged .* floor plane/)).toBeVisible();
+  await page.getByTestId("undo-button").click();
+  await expect(page.getByText("Undo restored the previous scenario state.")).toBeVisible();
+  await page.getByTestId("redo-button").click();
+  await expect(page.getByText("Redo restored the next scenario state.")).toBeVisible();
   await page.screenshot({ path: shot("02_rack_array.png") });
 
   await page.getByTestId("step-cooling").click();
@@ -52,6 +63,7 @@ test("AirPath GUI self-acceptance flow", async ({ page }) => {
   await page.getByTestId("run-simulation").click();
   await expect(page.getByTestId("results-panel")).toContainText("Simulation Results");
   await expect(page.getByTestId("viewport-metrics")).toContainText("Max inlet");
+  await expect(page.getByTestId("warning-cluster").first()).toBeVisible();
 
   await page.getByTestId("view-thermal").click();
   await expect(page.getByTestId("heat-legend")).toBeVisible();
@@ -79,6 +91,7 @@ test("AirPath GUI self-acceptance flow", async ({ page }) => {
   await expect(page.getByTestId("report-panel")).toBeVisible();
   await expect(page.frameLocator("[data-testid='report-preview']").getByText("Executive Summary")).toBeVisible();
   await expect(page.frameLocator("[data-testid='report-preview']").getByText("Disclaimer")).toBeVisible();
+  await expect(page.frameLocator("[data-testid='report-preview']").locator("img")).toHaveCount(3);
   await page.screenshot({ path: shot("08_report.png") });
 
   const downloadPromise = page.waitForEvent("download");

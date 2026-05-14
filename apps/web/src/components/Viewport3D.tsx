@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Edges, Html, Line, OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
@@ -6,13 +6,14 @@ import {
   type ContainmentObject,
   type CoolingObject,
   type Rack,
+  type Scenario,
   type Vector3,
   generateRackArray,
   isReturnObject,
   isSupplyObject,
   orientationVector
 } from "@airpath/scenario-schema";
-import { cellCenter, sampleVectorField, type SimulationResult } from "@airpath/solver-core";
+import { cellCenter, sampleVectorField, type SimulationResult, type SimulationWarning, type SimulationWarningSeverity } from "@airpath/solver-core";
 import { useAirPathStore } from "../store";
 
 export function Viewport3D() {
@@ -29,14 +30,97 @@ export function Viewport3D() {
   const particleDensity = useAirPathStore((state) => state.particleDensity);
   const particleSpeed = useAirPathStore((state) => state.particleSpeed);
   const focusWarning = useAirPathStore((state) => state.focusWarning);
+  const updateRackPositionPreview = useAirPathStore((state) => state.updateRackPositionPreview);
+  const commitScenarioHistory = useAirPathStore((state) => state.commitScenarioHistory);
+  const focusWarningCluster = useAirPathStore((state) => state.focusWarningCluster);
+  const dragRef = useRef<RackDragState | null>(null);
+  const [draggingRackId, setDraggingRackId] = useState<string | undefined>();
 
   const showThermal = viewMode === "thermal" || viewMode === "combined" || viewMode === "slice" || viewMode === "report";
   const showAirflow = viewMode === "airflow" || viewMode === "combined";
   const showGhost = activeStep === "racks";
+  const warningClusters = useMemo(() => clusterWarnings(result.warnings), [result.warnings]);
+
+  useEffect(() => {
+    function handlePointerMove(event: PointerEvent) {
+      const drag = dragRef.current;
+      if (!drag || drag.source !== "screen") return;
+      const dx = (event.clientX - drag.startClient.x) * 0.018;
+      const dz = (event.clientY - drag.startClient.y) * 0.018;
+      updateRackPositionPreview(drag.rackId, drag.startRackPosition.x + dx, drag.startRackPosition.z + dz);
+    }
+
+    function handlePointerUp() {
+      const drag = dragRef.current;
+      if (!drag) return;
+      commitScenarioHistory(drag.previousScenario, `Dragged ${drag.rackName} on the floor plane.`);
+      dragRef.current = null;
+      setDraggingRackId(undefined);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [commitScenarioHistory, updateRackPositionPreview]);
+
+  function beginRackScreenDrag(rack: Rack, clientX: number, clientY: number) {
+    dragRef.current = {
+      source: "screen",
+      rackId: rack.id,
+      rackName: rack.name,
+      previousScenario: scenario,
+      startRackPosition: { x: rack.position.x, z: rack.position.z },
+      startClient: { x: clientX, y: clientY }
+    };
+    setDraggingRackId(rack.id);
+  }
+
+  function beginRackViewportDrag(rack: Rack, event: ThreeEvent<PointerEvent>) {
+    event.stopPropagation();
+    const target = event.target as Element & { setPointerCapture?: (pointerId: number) => void };
+    target.setPointerCapture?.(event.pointerId);
+    selectObject(rack.id, event.nativeEvent.shiftKey);
+    dragRef.current = {
+      source: "viewport",
+      rackId: rack.id,
+      rackName: rack.name,
+      previousScenario: scenario,
+      startRackPosition: { x: rack.position.x, z: rack.position.z },
+      startPoint: { x: event.point.x, z: event.point.z },
+      startClient: { x: event.nativeEvent.clientX, y: event.nativeEvent.clientY }
+    };
+    setDraggingRackId(rack.id);
+  }
+
+  function updateRackViewportDrag(rack: Rack, event: ThreeEvent<PointerEvent>) {
+    const drag = dragRef.current;
+    if (!drag || drag.rackId !== rack.id || drag.source !== "viewport" || !drag.startPoint) return;
+    event.stopPropagation();
+    updateRackPositionPreview(
+      rack.id,
+      drag.startRackPosition.x + (event.point.x - drag.startPoint.x),
+      drag.startRackPosition.z + (event.point.z - drag.startPoint.z)
+    );
+  }
+
+  function endRackViewportDrag(rack: Rack, event: ThreeEvent<PointerEvent>) {
+    const drag = dragRef.current;
+    if (!drag || drag.rackId !== rack.id || drag.source !== "viewport") return;
+    event.stopPropagation();
+    const target = event.target as Element & { releasePointerCapture?: (pointerId: number) => void };
+    target.releasePointerCapture?.(event.pointerId);
+    commitScenarioHistory(drag.previousScenario, `Dragged ${drag.rackName} on the floor plane.`);
+    dragRef.current = null;
+    setDraggingRackId(undefined);
+  }
 
   return (
     <Canvas
       shadows
+      gl={{ preserveDrawingBuffer: true, antialias: true }}
       camera={{ position: [scenario.room.width * 0.86, scenario.room.height * 1.45, scenario.room.depth * 1.22], fov: 46 }}
       onPointerMissed={clearSelection}
       data-testid="three-canvas"
@@ -54,6 +138,10 @@ export function Viewport3D() {
           inletTemp={result.rackInlets.find((inlet) => inlet.rackId === rack.id)?.inletTemperatureC}
           onSelect={(event) => selectObject(rack.id, event.nativeEvent.shiftKey)}
           onLabelSelect={(multi) => selectObject(rack.id, multi)}
+          onLabelDragStart={(event) => beginRackScreenDrag(rack, event.clientX, event.clientY)}
+          onViewportDragStart={(event) => beginRackViewportDrag(rack, event)}
+          onViewportDragMove={(event) => updateRackViewportDrag(rack, event)}
+          onViewportDragEnd={(event) => endRackViewportDrag(rack, event)}
         />
       ))}
       {showGhost && <GhostRackPreview racks={generateRackArray(rackDraft)} roomWidth={scenario.room.width} roomDepth={scenario.room.depth} />}
@@ -64,18 +152,33 @@ export function Viewport3D() {
         <ContainmentMesh key={object.id} object={object} selected={selectedIds.includes(object.id)} onSelect={(event) => selectObject(object.id, event.nativeEvent.shiftKey)} />
       ))}
       {showAirflow && <AirflowStreamlines result={result} density={particleDensity} speed={particleSpeed} />}
-      {result.warnings.map((warning) => (
-        <Html key={warning.id} position={[warning.position.x, warning.position.y + 0.25, warning.position.z]} center zIndexRange={[20, 0]}>
-          <button type="button" className={`warning-pin ${warning.severity}`} onClick={() => focusWarning(warning)} data-testid="warning-pin">
-            {warning.severity === "critical" ? "!" : "?"}
-            <span>{warning.label}</span>
+      {warningClusters.map((cluster) => (
+        <Html key={cluster.id} position={[cluster.position.x, cluster.position.y + 0.25, cluster.position.z]} center zIndexRange={[20, 0]}>
+          <button
+            type="button"
+            className={`warning-pin ${cluster.severity} ${cluster.warnings.length > 1 ? "cluster" : ""}`}
+            onClick={() => (cluster.warnings.length > 1 ? focusWarningCluster(cluster.warnings) : focusWarning(cluster.warnings[0]))}
+            data-testid={cluster.warnings.length > 1 ? "warning-cluster" : "warning-pin"}
+          >
+            {cluster.severity === "critical" ? "!" : "?"}
+            <span>{cluster.warnings.length > 1 ? `${cluster.warnings.length} ${cluster.label}` : cluster.label}</span>
           </button>
         </Html>
       ))}
       <CameraFocus point={focusedPoint} />
-      <OrbitControls makeDefault enableDamping dampingFactor={0.08} target={[scenario.room.width / 2, 1.1, scenario.room.depth / 2]} />
+      <OrbitControls makeDefault enabled={!draggingRackId} enableDamping dampingFactor={0.08} target={[scenario.room.width / 2, 1.1, scenario.room.depth / 2]} />
     </Canvas>
   );
+}
+
+interface RackDragState {
+  source: "viewport" | "screen";
+  rackId: string;
+  rackName: string;
+  previousScenario: Scenario;
+  startRackPosition: { x: number; z: number };
+  startClient: { x: number; y: number };
+  startPoint?: { x: number; z: number };
 }
 
 function Room({ room, showGrid }: { room: { width: number; depth: number; height: number }; showGrid: boolean }) {
@@ -101,13 +204,21 @@ function RackMesh({
   selected,
   inletTemp,
   onSelect,
-  onLabelSelect
+  onLabelSelect,
+  onLabelDragStart,
+  onViewportDragStart,
+  onViewportDragMove,
+  onViewportDragEnd
 }: {
   rack: Rack;
   selected: boolean;
   inletTemp?: number;
   onSelect: (event: ThreeEvent<MouseEvent>) => void;
   onLabelSelect: (multi: boolean) => void;
+  onLabelDragStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onViewportDragStart: (event: ThreeEvent<PointerEvent>) => void;
+  onViewportDragMove: (event: ThreeEvent<PointerEvent>) => void;
+  onViewportDragEnd: (event: ThreeEvent<PointerEvent>) => void;
 }) {
   const front = orientationVector(rack.orientation);
   const riskColor = thermalColor(inletTemp ?? 24, 24, 27, 32);
@@ -120,7 +231,13 @@ function RackMesh({
     Math.abs(front.x) > 0 ? [0.03, rack.size.height * 0.78, rack.size.depth * 0.55] : [rack.size.width * 0.55, rack.size.height * 0.78, 0.03];
 
   return (
-    <group position={[rack.position.x, rack.size.height / 2, rack.position.z]} onClick={onSelect}>
+    <group
+      position={[rack.position.x, rack.size.height / 2, rack.position.z]}
+      onClick={onSelect}
+      onPointerDown={onViewportDragStart}
+      onPointerMove={onViewportDragMove}
+      onPointerUp={onViewportDragEnd}
+    >
       <mesh castShadow receiveShadow>
         <boxGeometry args={[rack.size.width, rack.size.height, rack.size.depth]} />
         <meshStandardMaterial color={riskColor} roughness={0.62} metalness={0.08} emissive={selected ? "#38BDF8" : "#000000"} emissiveIntensity={selected ? 0.22 : 0} />
@@ -138,6 +255,10 @@ function RackMesh({
           onClick={(event) => {
             event.stopPropagation();
             onLabelSelect(event.shiftKey);
+          }}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            onLabelDragStart(event);
           }}
         >
           {rack.name.replace("Rack Array ", "R")}
@@ -227,31 +348,43 @@ function ContainmentMesh({
 
 function ThermalSlice({ result }: { result: SimulationResult }) {
   const y = Math.max(0, Math.floor(result.grid.ny * 0.32));
-  const cells = useMemo(() => {
-    const output: Array<{ key: string; position: [number, number, number]; color: string; opacity: number }> = [];
+  const texture = useMemo(() => {
+    const data = new Uint8Array(result.grid.nx * result.grid.nz);
+    const low = result.settings.ambientTemperatureC - 3;
+    const high = result.settings.criticalTemperatureC + 8;
     for (let z = 0; z < result.grid.nz; z += 1) {
       for (let x = 0; x < result.grid.nx; x += 1) {
         const index = z * result.grid.nx * result.grid.ny + y * result.grid.nx + x;
         const temp = result.temperatureFieldC[index] ?? result.settings.ambientTemperatureC;
-        output.push({
-          key: `${x}-${z}`,
-          position: [(x + 0.5) * result.grid.cellSizeM, 0.035, (z + 0.5) * result.grid.cellSizeM],
-          color: thermalColor(temp, result.settings.ambientTemperatureC, result.settings.warningTemperatureC, result.settings.criticalTemperatureC),
-          opacity: clamp((temp - result.settings.ambientTemperatureC + 3) / 15, 0.18, 0.58)
-        });
+        data[z * result.grid.nx + x] = Math.round(clamp((temp - low) / (high - low), 0, 1) * 255);
       }
     }
-    return output;
+    const map = new THREE.DataTexture(data, result.grid.nx, result.grid.nz, THREE.RedFormat, THREE.UnsignedByteType);
+    map.needsUpdate = true;
+    map.magFilter = THREE.NearestFilter;
+    map.minFilter = THREE.NearestFilter;
+    map.wrapS = THREE.ClampToEdgeWrapping;
+    map.wrapT = THREE.ClampToEdgeWrapping;
+    return map;
   }, [result, y]);
+  const width = result.grid.nx * result.grid.cellSizeM;
+  const depth = result.grid.nz * result.grid.cellSizeM;
 
   return (
     <group>
-      {cells.map((cell) => (
-        <mesh key={cell.key} position={cell.position}>
-          <boxGeometry args={[result.grid.cellSizeM * 0.95, 0.015, result.grid.cellSizeM * 0.95]} />
-          <meshBasicMaterial color={cell.color} transparent opacity={cell.opacity} depthWrite={false} />
-        </mesh>
-      ))}
+      <mesh position={[width / 2, 0.036, depth / 2]} rotation={[-Math.PI / 2, 0, 0]} data-testid="shader-heatmap">
+        <planeGeometry args={[width, depth, 1, 1]} />
+        <shaderMaterial
+          transparent
+          depthWrite={false}
+          uniforms={{
+            uTemperature: { value: texture },
+            uOpacity: { value: 0.62 }
+          }}
+          vertexShader={thermalVertexShader}
+          fragmentShader={thermalFragmentShader}
+        />
+      </mesh>
       <Html position={[0.7, 0.15, 0.7]} transform={false} style={{ pointerEvents: "none" }}>
         <div className="heat-legend" data-testid="heat-legend">
           <strong>Thermal slice C</strong>
@@ -262,6 +395,40 @@ function ThermalSlice({ result }: { result: SimulationResult }) {
     </group>
   );
 }
+
+const thermalVertexShader = `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const thermalFragmentShader = `
+  uniform sampler2D uTemperature;
+  uniform float uOpacity;
+  varying vec2 vUv;
+
+  vec3 thermalRamp(float t) {
+    vec3 cold = vec3(0.219, 0.741, 0.973);
+    vec3 cool = vec3(0.133, 0.827, 0.933);
+    vec3 neutral = vec3(0.580, 0.639, 0.721);
+    vec3 warm = vec3(0.961, 0.620, 0.043);
+    vec3 hot = vec3(0.976, 0.451, 0.086);
+    vec3 critical = vec3(0.937, 0.267, 0.267);
+    if (t < 0.22) return mix(cold, cool, t / 0.22);
+    if (t < 0.48) return mix(cool, neutral, (t - 0.22) / 0.26);
+    if (t < 0.68) return mix(neutral, warm, (t - 0.48) / 0.20);
+    if (t < 0.84) return mix(warm, hot, (t - 0.68) / 0.16);
+    return mix(hot, critical, (t - 0.84) / 0.16);
+  }
+
+  void main() {
+    float t = texture2D(uTemperature, vUv).r;
+    float alpha = mix(0.18, uOpacity, smoothstep(0.08, 1.0, t));
+    gl_FragColor = vec4(thermalRamp(t), alpha);
+  }
+`;
 
 function AirflowStreamlines({ result, density, speed }: { result: SimulationResult; density: number; speed: number }) {
   const paths = useMemo(() => buildStreamlines(result, density), [result, density]);
@@ -324,6 +491,52 @@ function buildStreamlines(result: SimulationResult, density: number): Vector3[][
   return paths;
 }
 
+interface WarningCluster {
+  id: string;
+  label: string;
+  severity: SimulationWarningSeverity;
+  warnings: SimulationWarning[];
+  position: Vector3;
+}
+
+function clusterWarnings(warnings: SimulationWarning[]): WarningCluster[] {
+  const clusters: WarningCluster[] = [];
+  const maxDistanceM = 1.35;
+  for (const warning of warnings) {
+    const existing = clusters.find(
+      (cluster) => cluster.warnings[0]?.type === warning.type && distance(cluster.position, warning.position) <= maxDistanceM
+    );
+    if (existing) {
+      existing.warnings.push(warning);
+      existing.position = averagePosition(existing.warnings.map((item) => item.position));
+      existing.severity = maxSeverity(existing.warnings.map((item) => item.severity));
+    } else {
+      clusters.push({
+        id: `cluster-${warning.id}`,
+        label: warning.label,
+        severity: warning.severity,
+        warnings: [warning],
+        position: warning.position
+      });
+    }
+  }
+  return clusters;
+}
+
+function averagePosition(points: Vector3[]): Vector3 {
+  const total = points.reduce(
+    (sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y, z: sum.z + point.z }),
+    { x: 0, y: 0, z: 0 }
+  );
+  return { x: total.x / points.length, y: total.y / points.length, z: total.z / points.length };
+}
+
+function maxSeverity(severities: SimulationWarningSeverity[]): SimulationWarningSeverity {
+  if (severities.includes("critical")) return "critical";
+  if (severities.includes("warning")) return "warning";
+  return "info";
+}
+
 function tracePath(start: Vector3, result: SimulationResult): Vector3[] {
   const path = [start];
   let current = start;
@@ -349,6 +562,10 @@ function pathColor(path: Vector3[]): string {
   const start = path[0];
   const end = path[path.length - 1];
   return end.y > start.y + 0.4 ? "#F97316" : end.y < start.y - 0.3 ? "#38BDF8" : "#CBD5E1";
+}
+
+function distance(a: Vector3, b: Vector3): number {
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
 function thermalColor(temp: number, ambient: number, warning: number, critical: number): string {

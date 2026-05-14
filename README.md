@@ -151,6 +151,21 @@ Room -> Rack Array -> Cooling -> Containment -> Simulate -> Review -> Export
 
 Validation and acceptance checks are intentionally regression-oriented. They do not certify engineering accuracy.
 
+## Deployment
+
+The repo includes `vercel.json` for the Vite web app. Vercel should run:
+
+```txt
+npm install
+npm run build
+```
+
+and serve:
+
+```txt
+apps/web/dist
+```
+
 ---
 
 ## Governing Documents

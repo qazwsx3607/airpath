@@ -1,9 +1,12 @@
-import { AlertTriangle, Boxes, ChevronLeft, ChevronRight, FileDown, FileInput, Grid3X3, Play, Save, Settings2 } from "lucide-react";
+import { lazy, Suspense, useEffect } from "react";
+import { AlertTriangle, Boxes, ChevronLeft, ChevronRight, FileDown, FileInput, Grid3X3, Play, Redo2, Save, Settings2, Undo2 } from "lucide-react";
 import { LeftPanel } from "./components/LeftPanel";
 import { RightPanel } from "./components/RightPanel";
 import { ScenarioBar } from "./components/ScenarioBar";
-import { Viewport3D } from "./components/Viewport3D";
+import { generateReportWithViewportScreenshots } from "./reportCapture";
 import { useAirPathStore, type ViewMode } from "./store";
+
+const Viewport3D = lazy(() => import("./components/Viewport3D").then((module) => ({ default: module.Viewport3D })));
 
 const viewModes: Array<{ key: ViewMode; label: string }> = [
   { key: "solid", label: "Solid" },
@@ -20,7 +23,6 @@ export function App() {
   const viewMode = useAirPathStore((state) => state.viewMode);
   const setViewMode = useAirPathStore((state) => state.setViewMode);
   const runSimulation = useAirPathStore((state) => state.runSimulation);
-  const generateReport = useAirPathStore((state) => state.generateReport);
   const exportScenarioJson = useAirPathStore((state) => state.exportScenarioJson);
   const importScenarioJson = useAirPathStore((state) => state.importScenarioJson);
   const loadSample = useAirPathStore((state) => state.loadSample);
@@ -29,6 +31,43 @@ export function App() {
   const rightCollapsed = useAirPathStore((state) => state.rightCollapsed);
   const toggleLeft = useAirPathStore((state) => state.toggleLeft);
   const toggleRight = useAirPathStore((state) => state.toggleRight);
+  const undo = useAirPathStore((state) => state.undo);
+  const redo = useAirPathStore((state) => state.redo);
+  const deleteSelected = useAirPathStore((state) => state.deleteSelected);
+  const clearSelection = useAirPathStore((state) => state.clearSelection);
+  const toggleGrid = useAirPathStore((state) => state.toggleGrid);
+  const historyPast = useAirPathStore((state) => state.historyPast);
+  const historyFuture = useAirPathStore((state) => state.historyFuture);
+
+  useEffect(() => {
+    function handleShortcut(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const isTyping = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.tagName === "SELECT";
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !event.shiftKey) {
+        event.preventDefault();
+        undo();
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && (event.key.toLowerCase() === "y" || (event.shiftKey && event.key.toLowerCase() === "z"))) {
+        event.preventDefault();
+        redo();
+        return;
+      }
+      if (isTyping) return;
+      if (event.key === "Delete") {
+        deleteSelected();
+      } else if (event.key === "Escape") {
+        clearSelection();
+      } else if (event.key.toLowerCase() === "g") {
+        toggleGrid();
+      } else if (event.key.toLowerCase() === "h") {
+        setViewMode(viewMode === "thermal" ? "solid" : "thermal");
+      }
+    }
+
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [clearSelection, deleteSelected, redo, setViewMode, toggleGrid, undo, viewMode]);
 
   return (
     <div className="app-shell">
@@ -81,11 +120,24 @@ export function App() {
           <button type="button" className="ghost icon-button" onClick={toggleRight} title="Collapse right result panel">
             {rightCollapsed ? <ChevronLeft size={17} /> : <ChevronRight size={17} />}
           </button>
-          <button type="button" className="secondary" onClick={() => downloadText(exportScenarioJson(), `${scenario.metadata.name}.airpath.json`, "application/json")} data-testid="export-json">
+          <button type="button" className="ghost icon-button" onClick={undo} disabled={historyPast.length === 0} title="Undo" data-testid="undo-button">
+            <Undo2 size={17} />
+          </button>
+          <button type="button" className="ghost icon-button" onClick={redo} disabled={historyFuture.length === 0} title="Redo" data-testid="redo-button">
+            <Redo2 size={17} />
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => downloadText(exportScenarioJson(), `${scenario.metadata.name}.airpath.json`, "application/json")}
+            data-testid="export-json"
+            title="Export JSON"
+            aria-label="Export JSON"
+          >
             <Save size={16} aria-hidden="true" />
             Export JSON
           </button>
-          <label className="secondary file-button">
+          <label className="secondary file-button" title="Import JSON" aria-label="Import JSON">
             <FileInput size={16} aria-hidden="true" />
             Import JSON
             <input
@@ -100,11 +152,18 @@ export function App() {
               }}
             />
           </label>
-          <button type="button" className="primary" onClick={runSimulation} data-testid="run-simulation">
+          <button type="button" className="primary" onClick={runSimulation} data-testid="run-simulation" title="Run Simulation" aria-label="Run Simulation">
             <Play size={16} aria-hidden="true" />
             Run Simulation
           </button>
-          <button type="button" className="secondary" onClick={generateReport} data-testid="generate-report">
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void generateReportWithViewportScreenshots()}
+            data-testid="generate-report"
+            title="Export Report"
+            aria-label="Export Report"
+          >
             <FileDown size={16} aria-hidden="true" />
             Export Report
           </button>
@@ -117,7 +176,9 @@ export function App() {
       <main className={`workspace ${leftCollapsed ? "left-collapsed" : ""} ${rightCollapsed ? "right-collapsed" : ""}`}>
         <LeftPanel />
         <section className="viewport-wrap" aria-label="3D viewport">
-          <Viewport3D />
+          <Suspense fallback={<div className="viewport-loading">Loading 3D viewport</div>}>
+            <Viewport3D />
+          </Suspense>
           <div className="viewport-metrics" data-testid="viewport-metrics">
             <span>Max inlet {result.metrics.maxRackInletTemperatureC.toFixed(1)} C</span>
             <span>Avg {result.metrics.averageRackInletTemperatureC.toFixed(1)} C</span>

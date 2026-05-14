@@ -21,7 +21,13 @@ import {
   validateScenario
 } from "@airpath/scenario-schema";
 import { type SimulationResult, type SimulationWarning, solveScenario } from "@airpath/solver-core";
-import { compareScenarioResults, createReportData, renderHtmlReport, type ScenarioComparison } from "@airpath/report-engine";
+import {
+  compareScenarioResults,
+  createReportData,
+  renderHtmlReport,
+  type ReportScreenshots,
+  type ScenarioComparison
+} from "@airpath/report-engine";
 import { buildSampleScenarios } from "./sampleScenarios";
 
 export type ViewMode = "solid" | "thermal" | "airflow" | "combined" | "slice" | "report";
@@ -31,6 +37,8 @@ export type RightTab = "inspector" | "results" | "warnings" | "report";
 interface AirPathState {
   scenario: Scenario;
   result: SimulationResult;
+  historyPast: Scenario[];
+  historyFuture: Scenario[];
   rackDraft: RackArrayInput;
   selectedIds: string[];
   focusedWarningId?: string;
@@ -44,6 +52,7 @@ interface AirPathState {
   showGrid: boolean;
   particleDensity: number;
   particleSpeed: number;
+  reportScreenshots: ReportScreenshots;
   reportHtml: string;
   scenarioB?: Scenario;
   resultB?: SimulationResult;
@@ -59,6 +68,8 @@ interface AirPathState {
   toggleGrid: () => void;
   setParticleDensity: (value: number) => void;
   setParticleSpeed: (value: number) => void;
+  undo: () => void;
+  redo: () => void;
   applyRoomTemplate: (template: RoomTemplateKey) => void;
   updateRoom: (patch: Partial<Scenario["room"]>) => void;
   updateRackDraft: (patch: Partial<RackArrayInput>) => void;
@@ -69,11 +80,13 @@ interface AirPathState {
   batchEditSelectedRacks: (patch: Partial<Pick<Rack, "heatLoadKw" | "coolingMode" | "liquidCaptureRatio" | "orientation">>) => void;
   resizeSelectedRacks: (size: Partial<Size3>) => void;
   moveSelectedRacks: (dx: number, dz: number) => void;
+  updateRackPositionPreview: (rackId: string, x: number, z: number) => void;
+  commitScenarioHistory: (previousScenario: Scenario, statusMessage: string) => void;
   deleteSelected: () => void;
   addCoolingObject: (type: CoolingObjectType) => void;
   addContainment: (type: ContainmentType) => void;
   runSimulation: () => void;
-  generateReport: () => void;
+  generateReport: (screenshots?: ReportScreenshots) => void;
   loadSample: (key: string) => void;
   importScenarioJson: (json: string) => void;
   exportScenarioJson: () => string;
@@ -81,16 +94,20 @@ interface AirPathState {
   improveScenarioB: () => void;
   compareScenarios: () => void;
   focusWarning: (warning: SimulationWarning) => void;
+  focusWarningCluster: (warnings: SimulationWarning[]) => void;
 }
 
 type AirPathSet = (partial: Partial<AirPathState>) => void;
 
 const initialScenario = createDefaultScenario("medium");
 const initialResult = solveScenario(initialScenario, "formal");
+const historyLimit = 40;
 
 export const useAirPathStore = create<AirPathState>((set, get) => ({
   scenario: initialScenario,
   result: initialResult,
+  historyPast: [],
+  historyFuture: [],
   rackDraft: defaultRackArrayInput(initialScenario.room),
   selectedIds: [],
   activeStep: "room",
@@ -102,6 +119,7 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
   showGrid: true,
   particleDensity: 44,
   particleSpeed: 1,
+  reportScreenshots: {},
   reportHtml: renderHtmlReport(createReportData(initialScenario, initialResult)),
   statusMessage: "Ready for a 5-minute airflow review.",
   samples: buildSampleScenarios(),
@@ -114,7 +132,45 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
   toggleGrid: () => set((state) => ({ showGrid: !state.showGrid })),
   setParticleDensity: (particleDensity) => set({ particleDensity }),
   setParticleSpeed: (particleSpeed) => set({ particleSpeed }),
+  undo: () => {
+    const state = get();
+    const previous = state.historyPast.at(-1);
+    if (!previous) return;
+    const historyPast = state.historyPast.slice(0, -1);
+    const result = solveScenario(previous, "preview");
+    set({
+      scenario: previous,
+      result,
+      historyPast,
+      historyFuture: [state.scenario, ...state.historyFuture].slice(0, historyLimit),
+      selectedIds: [],
+      focusedPoint: undefined,
+      focusedWarningId: undefined,
+      reportScreenshots: {},
+      reportHtml: renderHtmlReport(createReportData(previous, result)),
+      statusMessage: "Undo restored the previous scenario state."
+    });
+  },
+  redo: () => {
+    const state = get();
+    const next = state.historyFuture[0];
+    if (!next) return;
+    const result = solveScenario(next, "preview");
+    set({
+      scenario: next,
+      result,
+      historyPast: [...state.historyPast, state.scenario].slice(-historyLimit),
+      historyFuture: state.historyFuture.slice(1),
+      selectedIds: [],
+      focusedPoint: undefined,
+      focusedWarningId: undefined,
+      reportScreenshots: {},
+      reportHtml: renderHtmlReport(createReportData(next, result)),
+      statusMessage: "Redo restored the next scenario state."
+    });
+  },
   applyRoomTemplate: (template) => {
+    const state = get();
     const room = template === "custom" ? { ...roomTemplates.medium, id: "room-custom", name: "Custom room" } : { ...roomTemplates[template] };
     const scenario = validateScenario({
       ...createDefaultScenario(template === "custom" ? "medium" : template),
@@ -134,6 +190,7 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
       reportSettings: { ...initialScenario.reportSettings, projectName: room.name }
     });
     setWithPreview(set, scenario, {
+      ...historyPatch(state),
       rackDraft: defaultRackArrayInput(room),
       selectedIds: [],
       activeStep: "racks",
@@ -142,8 +199,10 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
   },
   updateRoom: (patch) => {
     const scenario = get().scenario;
+    const state = get();
     const room = { ...scenario.room, ...patch };
     setWithPreview(set, { ...scenario, room, simulationSettings: { ...scenario.simulationSettings, ambientTemperatureC: room.ambientTemperatureC } }, {
+      ...historyPatch(state),
       statusMessage: "Room dimensions updated."
     });
   },
@@ -153,6 +212,7 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
     const draft = prepareRackDraft(state.rackDraft, 1);
     const racks = generateRackArray(draft);
     setWithPreview(set, { ...state.scenario, rackArrays: [draft], racks }, {
+      ...historyPatch(state),
       selectedIds: racks.slice(0, 1).map((rack) => rack.id),
       statusMessage: `Created ${racks.length} racks from the array builder.`,
       rightTab: "inspector",
@@ -164,6 +224,7 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
     const draft = prepareRackDraft(state.rackDraft, state.scenario.rackArrays.length + 1);
     const racks = generateRackArray(draft);
     setWithPreview(set, { ...state.scenario, rackArrays: [...state.scenario.rackArrays, draft], racks: [...state.scenario.racks, ...racks] }, {
+      ...historyPatch(state),
       selectedIds: racks.map((rack) => rack.id),
       statusMessage: `Added ${racks.length} racks.`
     });
@@ -177,6 +238,7 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
   batchEditSelectedRacks: (patch) => {
     const state = get();
     const selected = new Set(state.selectedIds);
+    if (selected.size === 0) return;
     const racks = state.scenario.racks.map((rack) =>
       selected.has(rack.id)
         ? {
@@ -186,31 +248,53 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
           }
         : rack
     );
-    setWithPreview(set, { ...state.scenario, racks }, { statusMessage: `Updated ${selected.size} selected rack(s).` });
+    setWithPreview(set, { ...state.scenario, racks }, { ...historyPatch(state), statusMessage: `Updated ${selected.size} selected rack(s).` });
   },
   resizeSelectedRacks: (size) => {
     const state = get();
     const selected = new Set(state.selectedIds);
+    if (selected.size === 0) return;
     const racks = state.scenario.racks.map((rack) => (selected.has(rack.id) ? { ...rack, size: { ...rack.size, ...size } } : rack));
-    setWithPreview(set, { ...state.scenario, racks }, { statusMessage: `Resized ${selected.size} selected rack(s).` });
+    setWithPreview(set, { ...state.scenario, racks }, { ...historyPatch(state), statusMessage: `Resized ${selected.size} selected rack(s).` });
   },
   moveSelectedRacks: (dx, dz) => {
     const state = get();
     const selected = new Set(state.selectedIds);
+    if (selected.size === 0) return;
     const racks = state.scenario.racks.map((rack) =>
       selected.has(rack.id) ? { ...rack, position: { ...rack.position, x: rack.position.x + dx, z: rack.position.z + dz } } : rack
     );
-    setWithPreview(set, { ...state.scenario, racks }, { statusMessage: `Moved ${selected.size} selected rack(s).` });
+    setWithPreview(set, { ...state.scenario, racks }, { ...historyPatch(state), statusMessage: `Moved ${selected.size} selected rack(s).` });
+  },
+  updateRackPositionPreview: (rackId, x, z) => {
+    const state = get();
+    const racks = state.scenario.racks.map((rack) => {
+      if (rack.id !== rackId) return rack;
+      const nextX = clamp(x, rack.size.width / 2, state.scenario.room.width - rack.size.width / 2);
+      const nextZ = clamp(z, rack.size.depth / 2, state.scenario.room.depth - rack.size.depth / 2);
+      return { ...rack, position: { ...rack.position, x: nextX, z: nextZ } };
+    });
+    setWithPreview(set, { ...state.scenario, racks }, { selectedIds: [rackId], statusMessage: "Dragging rack on floor plane." });
+  },
+  commitScenarioHistory: (previousScenario, statusMessage) => {
+    const state = get();
+    set({
+      historyPast: [...state.historyPast, previousScenario].slice(-historyLimit),
+      historyFuture: [],
+      statusMessage
+    });
   },
   deleteSelected: () => {
     const state = get();
     const selected = new Set(state.selectedIds);
+    if (selected.size === 0) return;
     setWithPreview(set, {
       ...state.scenario,
       racks: state.scenario.racks.filter((rack) => !selected.has(rack.id)),
       coolingObjects: state.scenario.coolingObjects.filter((object) => !selected.has(object.id)),
       containmentObjects: state.scenario.containmentObjects.filter((object) => !selected.has(object.id))
     }, {
+      ...historyPatch(state),
       selectedIds: [],
       statusMessage: `Deleted ${selected.size} selected object(s).`
     });
@@ -219,6 +303,7 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
     const state = get();
     const object = createCoolingObject(type, state.scenario.coolingObjects.filter((candidate) => candidate.type === type).length + 1, state.scenario.room);
     setWithPreview(set, { ...state.scenario, coolingObjects: [...state.scenario.coolingObjects, object] }, {
+      ...historyPatch(state),
       selectedIds: [object.id],
       activeStep: "cooling",
       rightTab: "inspector",
@@ -234,6 +319,7 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
       state.selectedIds.length ? state.selectedIds : state.scenario.racks.map((rack) => rack.id)
     );
     setWithPreview(set, { ...state.scenario, containmentObjects: [...state.scenario.containmentObjects, object] }, {
+      ...historyPatch(state),
       selectedIds: [object.id],
       activeStep: "containment",
       rightTab: "inspector",
@@ -246,29 +332,34 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
     set({
       scenario,
       result,
+      reportScreenshots: {},
       reportHtml: renderHtmlReport(createReportData(scenario, result)),
       rightTab: "results",
       statusMessage: `Formal simulation complete in ${result.elapsedMs.toFixed(1)} ms.`
     });
   },
-  generateReport: () => {
+  generateReport: (screenshots = {}) => {
     const state = get();
-    const reportHtml = renderHtmlReport(createReportData(state.scenario, state.result));
-    set({ reportHtml, rightTab: "report", viewMode: "report", statusMessage: "Report preview generated." });
+    const reportScreenshots = { ...state.reportScreenshots, ...screenshots };
+    const reportHtml = renderHtmlReport(createReportData(state.scenario, state.result, reportScreenshots));
+    set({ reportScreenshots, reportHtml, rightTab: "report", viewMode: "report", statusMessage: "Report preview generated with embedded viewport images." });
   },
   loadSample: (key) => {
     const sample = get().samples.find((candidate) => candidate.key === key);
     if (!sample) return;
     const scenario = validateScenario(sample.scenario);
     const result = solveScenario(scenario, "formal");
+    const state = get();
     set({
       scenario,
       result,
+      ...historyPatch(state),
       rackDraft: defaultRackArrayInput(scenario.room),
       selectedIds: [],
       activeStep: "review",
       rightTab: "results",
       viewMode: "combined",
+      reportScreenshots: {},
       reportHtml: renderHtmlReport(createReportData(scenario, result)),
       statusMessage: `${sample.label} loaded.`
     });
@@ -276,11 +367,14 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
   importScenarioJson: (json) => {
     const scenario = deserializeScenario(json);
     const result = solveScenario(scenario, "formal");
+    const state = get();
     set({
       scenario,
       result,
+      ...historyPatch(state),
       rackDraft: defaultRackArrayInput(scenario.room),
       selectedIds: [],
+      reportScreenshots: {},
       reportHtml: renderHtmlReport(createReportData(scenario, result)),
       statusMessage: "Scenario JSON imported."
     });
@@ -327,6 +421,14 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
       selectedIds: warning.objectIds,
       rightTab: "warnings",
       statusMessage: warning.suggestedMitigation
+    }),
+  focusWarningCluster: (warnings) =>
+    set({
+      focusedWarningId: `cluster-${warnings.map((warning) => warning.id).join("-")}`,
+      focusedPoint: averagePosition(warnings.map((warning) => warning.position)),
+      selectedIds: [...new Set(warnings.flatMap((warning) => warning.objectIds))],
+      rightTab: "warnings",
+      statusMessage: `${warnings.length} nearby ${warnings[0]?.label.toLowerCase() ?? "warning"} items clustered.`
     })
 }));
 
@@ -340,9 +442,17 @@ function setWithPreview(
   set({
     scenario,
     result,
+    reportScreenshots: {},
     reportHtml: renderHtmlReport(createReportData(scenario, result)),
     ...patch
   });
+}
+
+function historyPatch(state: AirPathState): Pick<AirPathState, "historyPast" | "historyFuture"> {
+  return {
+    historyPast: [...state.historyPast, state.scenario].slice(-historyLimit),
+    historyFuture: []
+  };
 }
 
 function prepareRackDraft(draft: RackArrayInput, ordinal: number): RackArrayInput {
@@ -355,4 +465,17 @@ function prepareRackDraft(draft: RackArrayInput, ordinal: number): RackArrayInpu
 
 function toggleSelection(selection: string[], id: string): string[] {
   return selection.includes(id) ? selection.filter((candidate) => candidate !== id) : [...selection, id];
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function averagePosition(points: Vector3[]): Vector3 | undefined {
+  if (points.length === 0) return undefined;
+  const total = points.reduce(
+    (sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y, z: sum.z + point.z }),
+    { x: 0, y: 0, z: 0 }
+  );
+  return { x: total.x / points.length, y: total.y / points.length, z: total.z / points.length };
 }
