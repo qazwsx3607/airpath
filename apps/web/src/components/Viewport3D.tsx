@@ -14,7 +14,7 @@ import {
   orientationVector
 } from "@airpath/scenario-schema";
 import { cellCenter, sampleVectorField, type SimulationResult, type SimulationWarning, type SimulationWarningSeverity } from "@airpath/solver-core";
-import { useAirPathStore } from "../store";
+import { useAirPathStore, type ViewMode } from "../store";
 
 export function Viewport3D() {
   const scenario = useAirPathStore((state) => state.scenario);
@@ -24,11 +24,15 @@ export function Viewport3D() {
   const clearSelection = useAirPathStore((state) => state.clearSelection);
   const viewMode = useAirPathStore((state) => state.viewMode);
   const showGrid = useAirPathStore((state) => state.showGrid);
+  const showObjectLabels = useAirPathStore((state) => state.showObjectLabels);
+  const showWarningPins = useAirPathStore((state) => state.showWarningPins);
   const rackDraft = useAirPathStore((state) => state.rackDraft);
   const activeStep = useAirPathStore((state) => state.activeStep);
+  const rightTab = useAirPathStore((state) => state.rightTab);
   const focusedPoint = useAirPathStore((state) => state.focusedPoint);
   const particleDensity = useAirPathStore((state) => state.particleDensity);
   const particleSpeed = useAirPathStore((state) => state.particleSpeed);
+  const thermalOpacity = useAirPathStore((state) => state.thermalOpacity);
   const focusWarning = useAirPathStore((state) => state.focusWarning);
   const updateRackPositionPreview = useAirPathStore((state) => state.updateRackPositionPreview);
   const commitScenarioHistory = useAirPathStore((state) => state.commitScenarioHistory);
@@ -36,9 +40,13 @@ export function Viewport3D() {
   const dragRef = useRef<RackDragState | null>(null);
   const [draggingRackId, setDraggingRackId] = useState<string | undefined>();
 
-  const showThermal = viewMode === "thermal" || viewMode === "combined" || viewMode === "slice" || viewMode === "report";
+  const showThermal = viewMode === "thermal" || viewMode === "combined" || viewMode === "slice";
   const showAirflow = viewMode === "airflow" || viewMode === "combined";
   const showGhost = activeStep === "racks";
+  const manualLabelsVisible = (viewMode === "solid" || viewMode === "combined") && showObjectLabels;
+  const solidLabelsVisible = viewMode === "solid";
+  const rackLabelsVisible = manualLabelsVisible || (solidLabelsVisible && activeStep === "racks");
+  const warningPinsVisible = showWarningPins || rightTab === "warnings";
   const warningClusters = useMemo(() => clusterWarnings(result.warnings), [result.warnings]);
 
   useEffect(() => {
@@ -129,12 +137,15 @@ export function Viewport3D() {
       <ambientLight intensity={0.42} />
       <directionalLight position={[scenario.room.width * 0.4, scenario.room.height * 2, scenario.room.depth * 0.25]} intensity={1.5} castShadow />
       <Room room={scenario.room} showGrid={showGrid} />
-      {showThermal && <ThermalSlice result={result} />}
+      {showThermal && <ThermalSlice result={result} opacity={thermalOpacity} />}
       {scenario.racks.map((rack) => (
         <RackMesh
           key={rack.id}
           rack={rack}
           selected={selectedIds.includes(rack.id)}
+          dragging={draggingRackId === rack.id}
+          showLabel={rackLabelsVisible || (solidLabelsVisible && selectedIds.includes(rack.id))}
+          thermalTint={showThermal}
           inletTemp={result.rackInlets.find((inlet) => inlet.rackId === rack.id)?.inletTemperatureC}
           onSelect={(event) => selectObject(rack.id, event.nativeEvent.shiftKey)}
           onLabelSelect={(multi) => selectObject(rack.id, multi)}
@@ -146,27 +157,47 @@ export function Viewport3D() {
       ))}
       {showGhost && <GhostRackPreview racks={generateRackArray(rackDraft)} roomWidth={scenario.room.width} roomDepth={scenario.room.depth} />}
       {scenario.coolingObjects.map((object) => (
-        <CoolingMesh key={object.id} object={object} selected={selectedIds.includes(object.id)} onSelect={(event) => selectObject(object.id, event.nativeEvent.shiftKey)} />
+        <CoolingMesh
+          key={object.id}
+          object={object}
+          selected={selectedIds.includes(object.id)}
+          showLabel={manualLabelsVisible || (solidLabelsVisible && (activeStep === "cooling" || selectedIds.includes(object.id)))}
+          onSelect={(event) => selectObject(object.id, event.nativeEvent.shiftKey)}
+        />
       ))}
       {scenario.containmentObjects.map((object) => (
-        <ContainmentMesh key={object.id} object={object} selected={selectedIds.includes(object.id)} onSelect={(event) => selectObject(object.id, event.nativeEvent.shiftKey)} />
+        <ContainmentMesh
+          key={object.id}
+          object={object}
+          selected={selectedIds.includes(object.id)}
+          showLabel={manualLabelsVisible || (solidLabelsVisible && (activeStep === "containment" || selectedIds.includes(object.id)))}
+          onSelect={(event) => selectObject(object.id, event.nativeEvent.shiftKey)}
+        />
       ))}
       {showAirflow && <AirflowStreamlines result={result} density={particleDensity} speed={particleSpeed} />}
-      {warningClusters.map((cluster) => (
+      {warningPinsVisible && warningClusters.map((cluster) => (
         <Html key={cluster.id} position={[cluster.position.x, cluster.position.y + 0.25, cluster.position.z]} center zIndexRange={[20, 0]}>
           <button
             type="button"
             className={`warning-pin ${cluster.severity} ${cluster.warnings.length > 1 ? "cluster" : ""}`}
             onClick={() => (cluster.warnings.length > 1 ? focusWarningCluster(cluster.warnings) : focusWarning(cluster.warnings[0]))}
             data-testid={cluster.warnings.length > 1 ? "warning-cluster" : "warning-pin"}
+            title={warningClusterTitle(cluster)}
+            aria-label={warningClusterTitle(cluster)}
           >
             {cluster.severity === "critical" ? "!" : "?"}
-            <span>{cluster.warnings.length > 1 ? `${cluster.warnings.length} ${cluster.label}` : cluster.label}</span>
+            <span>{cluster.warnings.length > 1 ? cluster.warnings.length : ""}</span>
           </button>
         </Html>
       ))}
-      <CameraFocus point={focusedPoint} />
-      <OrbitControls makeDefault enabled={!draggingRackId} enableDamping dampingFactor={0.08} target={[scenario.room.width / 2, 1.1, scenario.room.depth / 2]} />
+      <CameraFocus point={focusedPoint} room={scenario.room} viewMode={viewMode} />
+      <OrbitControls
+        makeDefault
+        enabled={!draggingRackId}
+        enableDamping
+        dampingFactor={0.08}
+        target={focusedPoint ? [focusedPoint.x, focusedPoint.y, focusedPoint.z] : [scenario.room.width / 2, 1.1, scenario.room.depth / 2]}
+      />
     </Canvas>
   );
 }
@@ -202,6 +233,9 @@ function Room({ room, showGrid }: { room: { width: number; depth: number; height
 function RackMesh({
   rack,
   selected,
+  dragging,
+  showLabel,
+  thermalTint,
   inletTemp,
   onSelect,
   onLabelSelect,
@@ -212,6 +246,9 @@ function RackMesh({
 }: {
   rack: Rack;
   selected: boolean;
+  dragging: boolean;
+  showLabel: boolean;
+  thermalTint: boolean;
   inletTemp?: number;
   onSelect: (event: ThreeEvent<MouseEvent>) => void;
   onLabelSelect: (multi: boolean) => void;
@@ -222,6 +259,7 @@ function RackMesh({
 }) {
   const front = orientationVector(rack.orientation);
   const riskColor = thermalColor(inletTemp ?? 24, 24, 27, 32);
+  const rackColor = thermalTint ? riskColor : "#334155";
   const markerPosition: [number, number, number] = [
     front.x * (rack.size.width / 2 + 0.012),
     0,
@@ -240,30 +278,39 @@ function RackMesh({
     >
       <mesh castShadow receiveShadow>
         <boxGeometry args={[rack.size.width, rack.size.height, rack.size.depth]} />
-        <meshStandardMaterial color={riskColor} roughness={0.62} metalness={0.08} emissive={selected ? "#38BDF8" : "#000000"} emissiveIntensity={selected ? 0.22 : 0} />
-        <Edges color={selected ? "#38BDF8" : "#465666"} />
+        <meshStandardMaterial
+          color={rackColor}
+          roughness={0.62}
+          metalness={0.08}
+          emissive={selected || dragging ? "#38BDF8" : "#000000"}
+          emissiveIntensity={dragging ? 0.36 : selected ? 0.22 : 0}
+        />
+        <Edges color={selected || dragging ? "#38BDF8" : "#465666"} />
       </mesh>
       <mesh position={markerPosition}>
         <boxGeometry args={markerSize} />
         <meshStandardMaterial color="#38BDF8" emissive="#38BDF8" emissiveIntensity={0.18} />
       </mesh>
-      <Html position={[0, rack.size.height / 2 + 0.22, 0]} center>
-        <button
-          type="button"
-          className={`object-label ${selected ? "selected" : ""}`}
-          data-testid="rack-label"
-          onClick={(event) => {
-            event.stopPropagation();
-            onLabelSelect(event.shiftKey);
-          }}
-          onPointerDown={(event) => {
-            event.stopPropagation();
-            onLabelDragStart(event);
-          }}
-        >
-          {rack.name.replace("Rack Array ", "R")}
-        </button>
-      </Html>
+      {showLabel && (
+        <Html position={[0, rack.size.height / 2 + 0.22, 0]} center>
+          <button
+            type="button"
+            className={`object-label ${selected ? "selected" : ""} ${dragging ? "dragging" : ""}`}
+            data-testid="rack-label"
+            title="Select or drag rack"
+            onClick={(event) => {
+              event.stopPropagation();
+              onLabelSelect(event.shiftKey);
+            }}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              onLabelDragStart(event);
+            }}
+          >
+            {rack.name.replace("Rack Array ", "R")}
+          </button>
+        </Html>
+      )}
     </group>
   );
 }
@@ -291,10 +338,12 @@ function GhostRackPreview({ racks, roomWidth, roomDepth }: { racks: Rack[]; room
 function CoolingMesh({
   object,
   selected,
+  showLabel,
   onSelect
 }: {
   object: CoolingObject;
   selected: boolean;
+  showLabel: boolean;
   onSelect: (event: ThreeEvent<MouseEvent>) => void;
 }) {
   const isReturn = isReturnObject(object) || object.type.includes("return");
@@ -314,9 +363,11 @@ function CoolingMesh({
         <Edges color={selected ? "#38BDF8" : color} />
       </mesh>
       <primitive object={arrow} />
-      <Html position={[0, object.size.height / 2 + 0.16, 0]} center style={{ pointerEvents: "none" }}>
-        <span className={`object-label ${isReturn ? "return" : "supply"}`}>{object.name}</span>
-      </Html>
+      {showLabel && (
+        <Html position={[0, object.size.height / 2 + 0.16, 0]} center style={{ pointerEvents: "none" }}>
+          <span className={`object-label ${isReturn ? "return" : "supply"}`}>{object.name}</span>
+        </Html>
+      )}
     </group>
   );
 }
@@ -324,10 +375,12 @@ function CoolingMesh({
 function ContainmentMesh({
   object,
   selected,
+  showLabel,
   onSelect
 }: {
   object: ContainmentObject;
   selected: boolean;
+  showLabel: boolean;
   onSelect: (event: ThreeEvent<MouseEvent>) => void;
 }) {
   const isCold = object.type.includes("cold");
@@ -339,14 +392,16 @@ function ContainmentMesh({
         <meshStandardMaterial color={color} transparent opacity={object.enabled ? 0.2 : 0.08} depthWrite={false} />
         <Edges color={selected ? "#E5EDF5" : color} />
       </mesh>
-      <Html position={[0, object.size.height / 2 + 0.14, 0]} center style={{ pointerEvents: "none" }}>
-        <span className="object-label containment">{object.name}</span>
-      </Html>
+      {showLabel && (
+        <Html position={[0, object.size.height / 2 + 0.14, 0]} center style={{ pointerEvents: "none" }}>
+          <span className="object-label containment">{object.name}</span>
+        </Html>
+      )}
     </group>
   );
 }
 
-function ThermalSlice({ result }: { result: SimulationResult }) {
+function ThermalSlice({ result, opacity }: { result: SimulationResult; opacity: number }) {
   const y = Math.max(0, Math.floor(result.grid.ny * 0.32));
   const texture = useMemo(() => {
     const data = new Uint8Array(result.grid.nx * result.grid.nz);
@@ -379,7 +434,7 @@ function ThermalSlice({ result }: { result: SimulationResult }) {
           depthWrite={false}
           uniforms={{
             uTemperature: { value: texture },
-            uOpacity: { value: 0.62 }
+            uOpacity: { value: opacity }
           }}
           vertexShader={thermalVertexShader}
           fragmentShader={thermalFragmentShader}
@@ -389,7 +444,7 @@ function ThermalSlice({ result }: { result: SimulationResult }) {
         <div className="heat-legend" data-testid="heat-legend">
           <strong>Thermal slice C</strong>
           <span className="legend-bar" />
-          <small>Cold · Neutral · Warm · Hot · Critical</small>
+          <small className="legend-readable">Cold - Neutral - Warm - Hot - Critical</small>
         </div>
       </Html>
     </group>
@@ -440,7 +495,7 @@ function AirflowStreamlines({ result, density, speed }: { result: SimulationResu
           points={path.map((point) => [point.x, point.y, point.z])}
           color={pathColor(path)}
           transparent
-          opacity={0.58}
+          opacity={0.36}
           lineWidth={1.15}
         />
       ))}
@@ -463,18 +518,30 @@ function FlowParticle({ path, speed, offset }: { path: Vector3[]; speed: number;
   return (
     <mesh ref={ref}>
       <sphereGeometry args={[0.035, 10, 10]} />
-      <meshBasicMaterial color={pathColor(path)} transparent opacity={0.86} />
+      <meshBasicMaterial color={pathColor(path)} transparent opacity={0.74} />
     </mesh>
   );
 }
 
-function CameraFocus({ point }: { point?: Vector3 }) {
+function CameraFocus({ point, room, viewMode }: { point?: Vector3; room: Scenario["room"]; viewMode: ViewMode }) {
   const { camera } = useThree();
   useEffect(() => {
-    if (!point) return;
-    camera.position.set(point.x + 3.2, point.y + 2.4, point.z + 3.2);
-    camera.lookAt(point.x, point.y, point.z);
-  }, [camera, point]);
+    if (point) {
+      camera.position.set(point.x + 5.2, Math.min(room.height * 1.55, point.y + 3.4), point.z + 5.2);
+      camera.lookAt(point.x, point.y, point.z);
+      return;
+    }
+
+    const center = new THREE.Vector3(room.width / 2, 1.1, room.depth / 2);
+    if (viewMode === "thermal" || viewMode === "slice") {
+      camera.position.set(room.width * 1.24, room.height * 2.25, room.depth * 1.62);
+    } else if (viewMode === "airflow") {
+      camera.position.set(room.width * 1.08, room.height * 1.82, room.depth * 1.42);
+    } else {
+      camera.position.set(room.width * 0.86, room.height * 1.45, room.depth * 1.22);
+    }
+    camera.lookAt(center);
+  }, [camera, point, room.depth, room.height, room.width, viewMode]);
   return null;
 }
 
@@ -497,6 +564,16 @@ interface WarningCluster {
   severity: SimulationWarningSeverity;
   warnings: SimulationWarning[];
   position: Vector3;
+}
+
+function warningClusterTitle(cluster: WarningCluster): string {
+  const severity = cluster.severity === "critical" ? "Critical" : "Warning";
+  const count = cluster.warnings.length;
+  const details = cluster.warnings
+    .slice(0, 3)
+    .map((warning) => warning.message)
+    .join(" | ");
+  return `${severity}: ${count} ${cluster.label}${count === 1 ? "" : " warnings"}${details ? ` - ${details}` : ""}`;
 }
 
 function clusterWarnings(warnings: SimulationWarning[]): WarningCluster[] {

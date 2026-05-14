@@ -50,8 +50,11 @@ interface AirPathState {
   rightCollapsed: boolean;
   bottomCollapsed: boolean;
   showGrid: boolean;
+  showObjectLabels: boolean;
+  showWarningPins: boolean;
   particleDensity: number;
   particleSpeed: number;
+  thermalOpacity: number;
   reportScreenshots: ReportScreenshots;
   reportHtml: string;
   scenarioB?: Scenario;
@@ -66,8 +69,11 @@ interface AirPathState {
   toggleRight: () => void;
   toggleBottom: () => void;
   toggleGrid: () => void;
+  toggleObjectLabels: () => void;
+  toggleWarningPins: () => void;
   setParticleDensity: (value: number) => void;
   setParticleSpeed: (value: number) => void;
+  setThermalOpacity: (value: number) => void;
   undo: () => void;
   redo: () => void;
   applyRoomTemplate: (template: RoomTemplateKey) => void;
@@ -112,13 +118,16 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
   selectedIds: [],
   activeStep: "room",
   rightTab: "results",
-  viewMode: "combined",
+  viewMode: "solid",
   leftCollapsed: false,
   rightCollapsed: false,
   bottomCollapsed: false,
   showGrid: true,
-  particleDensity: 44,
+  showObjectLabels: false,
+  showWarningPins: false,
+  particleDensity: 20,
   particleSpeed: 1,
+  thermalOpacity: 0.48,
   reportScreenshots: {},
   reportHtml: renderHtmlReport(createReportData(initialScenario, initialResult)),
   statusMessage: "Ready for a 5-minute airflow review.",
@@ -130,8 +139,11 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
   toggleRight: () => set((state) => ({ rightCollapsed: !state.rightCollapsed })),
   toggleBottom: () => set((state) => ({ bottomCollapsed: !state.bottomCollapsed })),
   toggleGrid: () => set((state) => ({ showGrid: !state.showGrid })),
+  toggleObjectLabels: () => set((state) => ({ showObjectLabels: !state.showObjectLabels })),
+  toggleWarningPins: () => set((state) => ({ showWarningPins: !state.showWarningPins })),
   setParticleDensity: (particleDensity) => set({ particleDensity }),
   setParticleSpeed: (particleSpeed) => set({ particleSpeed }),
+  setThermalOpacity: (thermalOpacity) => set({ thermalOpacity }),
   undo: () => {
     const state = get();
     const previous = state.historyPast.at(-1);
@@ -268,12 +280,15 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
   },
   updateRackPositionPreview: (rackId, x, z) => {
     const state = get();
+    let changed = false;
     const racks = state.scenario.racks.map((rack) => {
       if (rack.id !== rackId) return rack;
-      const nextX = clamp(x, rack.size.width / 2, state.scenario.room.width - rack.size.width / 2);
-      const nextZ = clamp(z, rack.size.depth / 2, state.scenario.room.depth - rack.size.depth / 2);
+      const nextX = snap(clamp(x, rack.size.width / 2, state.scenario.room.width - rack.size.width / 2), 0.05);
+      const nextZ = snap(clamp(z, rack.size.depth / 2, state.scenario.room.depth - rack.size.depth / 2), 0.05);
+      changed = nextX !== rack.position.x || nextZ !== rack.position.z;
       return { ...rack, position: { ...rack.position, x: nextX, z: nextZ } };
     });
+    if (!changed) return;
     setWithPreview(set, { ...state.scenario, racks }, { selectedIds: [rackId], statusMessage: "Dragging rack on floor plane." });
   },
   commitScenarioHistory: (previousScenario, statusMessage) => {
@@ -342,7 +357,16 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
     const state = get();
     const reportScreenshots = { ...state.reportScreenshots, ...screenshots };
     const reportHtml = renderHtmlReport(createReportData(state.scenario, state.result, reportScreenshots));
-    set({ reportScreenshots, reportHtml, rightTab: "report", viewMode: "report", statusMessage: "Report preview generated with embedded viewport images." });
+    set({
+      reportScreenshots,
+      reportHtml,
+      rightTab: "report",
+      viewMode: "report",
+      selectedIds: [],
+      focusedPoint: undefined,
+      focusedWarningId: undefined,
+      statusMessage: "Report preview generated with embedded viewport images."
+    });
   },
   loadSample: (key) => {
     const sample = get().samples.find((candidate) => candidate.key === key);
@@ -358,7 +382,7 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
       selectedIds: [],
       activeStep: "review",
       rightTab: "results",
-      viewMode: "combined",
+      viewMode: "solid",
       reportScreenshots: {},
       reportHtml: renderHtmlReport(createReportData(scenario, result)),
       statusMessage: `${sample.label} loaded.`
@@ -469,6 +493,10 @@ function toggleSelection(selection: string[], id: string): string[] {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function snap(value: number, increment: number): number {
+  return Math.round(value / increment) * increment;
 }
 
 function averagePosition(points: Vector3[]): Vector3 | undefined {

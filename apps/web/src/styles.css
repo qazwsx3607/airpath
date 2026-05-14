@@ -205,6 +205,12 @@ button {
   padding: 0;
 }
 
+.icon-button.active {
+  border-color: rgba(56, 189, 248, 0.54);
+  background: var(--brand-primary-soft);
+  color: var(--text-primary);
+}
+
 .full {
   width: 100%;
 }
@@ -754,6 +760,12 @@ button.object-label {
   color: var(--brand-primary);
 }
 
+.object-label.dragging {
+  border-color: rgba(56, 189, 248, 0.7);
+  background: rgba(14, 74, 103, 0.8);
+  color: var(--text-primary);
+}
+
 .object-label.return,
 .object-label.containment {
   color: var(--thermal-hot);
@@ -788,17 +800,19 @@ button.object-label {
 .warning-pin {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  max-width: 180px;
-  min-height: 28px;
-  padding: 0 8px;
-  border-radius: 8px;
+  justify-content: center;
+  gap: 3px;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0 7px;
+  border-radius: 999px;
   border: 1px solid rgba(245, 158, 11, 0.68);
   background: rgba(24, 17, 10, 0.86);
   color: #fde68a;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
 }
 
 .warning-pin.critical {
@@ -808,12 +822,12 @@ button.object-label {
 }
 
 .warning-pin.cluster {
-  min-width: 112px;
+  min-width: 40px;
   border-width: 2px;
 }
 
 .warning-pin span {
-  max-width: 130px;
+  max-width: 24px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

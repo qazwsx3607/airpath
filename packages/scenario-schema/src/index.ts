@@ -312,7 +312,7 @@ export function defaultRackArrayInput(room: Room = roomTemplates.medium): RackAr
     id: "rack-array-1",
     name: "Rack Array",
     rows: 2,
-    columns: 6,
+    columns: 4,
     rowSpacingM: 1,
     columnSpacingM: 0.15,
     aisleWidthM: 1.2,
@@ -320,8 +320,8 @@ export function defaultRackArrayInput(room: Room = roomTemplates.medium): RackAr
     rackSize: { ...defaultRackSize },
     orientation: "front-positive-z",
     heatLoadMode: "per-rack",
-    perRackKw: 10,
-    totalArrayKw: 120,
+    perRackKw: 4,
+    totalArrayKw: 32,
     customRackKw: {},
     coolingMode: "air-cooled",
     liquidCaptureRatio: 0
@@ -500,6 +500,8 @@ export function createDefaultScenario(template: RoomTemplateKey = "medium"): Sce
     coolingObjects: [
       createCoolingObject("crac-crah", 1, room),
       createCoolingObject("floor-perforated-tile", 1, room),
+      createCoolingObject("ceiling-supply-diffuser", 1, room),
+      createCoolingObject("in-row-cooler", 1, room),
       createCoolingObject("ceiling-return-grille", 1, room)
     ],
     containmentObjects: [],

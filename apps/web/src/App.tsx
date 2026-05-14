@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from "react";
-import { AlertTriangle, Boxes, ChevronLeft, ChevronRight, FileDown, FileInput, Grid3X3, Play, Redo2, Save, Settings2, Undo2 } from "lucide-react";
+import { AlertTriangle, Boxes, ChevronLeft, ChevronRight, FileDown, FileInput, Grid3X3, Play, Redo2, Save, Settings2, Tag, Undo2 } from "lucide-react";
 import { LeftPanel } from "./components/LeftPanel";
 import { RightPanel } from "./components/RightPanel";
 import { ScenarioBar } from "./components/ScenarioBar";
@@ -31,6 +31,10 @@ export function App() {
   const rightCollapsed = useAirPathStore((state) => state.rightCollapsed);
   const toggleLeft = useAirPathStore((state) => state.toggleLeft);
   const toggleRight = useAirPathStore((state) => state.toggleRight);
+  const showObjectLabels = useAirPathStore((state) => state.showObjectLabels);
+  const showWarningPins = useAirPathStore((state) => state.showWarningPins);
+  const toggleObjectLabels = useAirPathStore((state) => state.toggleObjectLabels);
+  const toggleWarningPins = useAirPathStore((state) => state.toggleWarningPins);
   const undo = useAirPathStore((state) => state.undo);
   const redo = useAirPathStore((state) => state.redo);
   const deleteSelected = useAirPathStore((state) => state.deleteSelected);
@@ -62,12 +66,16 @@ export function App() {
         toggleGrid();
       } else if (event.key.toLowerCase() === "h") {
         setViewMode(viewMode === "thermal" ? "solid" : "thermal");
+      } else if (event.key.toLowerCase() === "l") {
+        toggleObjectLabels();
+      } else if (event.key.toLowerCase() === "w") {
+        toggleWarningPins();
       }
     }
 
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [clearSelection, deleteSelected, redo, setViewMode, toggleGrid, undo, viewMode]);
+  }, [clearSelection, deleteSelected, redo, setViewMode, toggleGrid, toggleObjectLabels, toggleWarningPins, undo, viewMode]);
 
   return (
     <div className="app-shell">
@@ -119,6 +127,26 @@ export function App() {
           </button>
           <button type="button" className="ghost icon-button" onClick={toggleRight} title="Collapse right result panel">
             {rightCollapsed ? <ChevronLeft size={17} /> : <ChevronRight size={17} />}
+          </button>
+          <button
+            type="button"
+            className={`ghost icon-button ${showObjectLabels ? "active" : ""}`}
+            onClick={toggleObjectLabels}
+            title="Toggle object labels"
+            aria-label="Toggle object labels"
+            data-testid="toggle-object-labels"
+          >
+            <Tag size={17} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className={`ghost icon-button ${showWarningPins ? "active" : ""}`}
+            onClick={toggleWarningPins}
+            title="Toggle warning pins"
+            aria-label="Toggle warning pins"
+            data-testid="toggle-warning-pins"
+          >
+            <AlertTriangle size={17} aria-hidden="true" />
           </button>
           <button type="button" className="ghost icon-button" onClick={undo} disabled={historyPast.length === 0} title="Undo" data-testid="undo-button">
             <Undo2 size={17} />

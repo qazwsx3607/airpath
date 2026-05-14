@@ -68,8 +68,10 @@ export function LeftPanel() {
   const setViewMode = useAirPathStore((state) => state.setViewMode);
   const particleDensity = useAirPathStore((state) => state.particleDensity);
   const particleSpeed = useAirPathStore((state) => state.particleSpeed);
+  const thermalOpacity = useAirPathStore((state) => state.thermalOpacity);
   const setParticleDensity = useAirPathStore((state) => state.setParticleDensity);
   const setParticleSpeed = useAirPathStore((state) => state.setParticleSpeed);
+  const setThermalOpacity = useAirPathStore((state) => state.setThermalOpacity);
 
   if (collapsed) {
     return (
@@ -264,6 +266,18 @@ export function LeftPanel() {
             <label>
               Particle speed
               <input type="range" min={0.3} max={2.4} step={0.1} value={particleSpeed} onChange={(event) => setParticleSpeed(Number(event.target.value))} data-testid="particle-speed" />
+            </label>
+            <label>
+              Heatmap opacity
+              <input
+                type="range"
+                min={0.2}
+                max={0.8}
+                step={0.05}
+                value={thermalOpacity}
+                onChange={(event) => setThermalOpacity(Number(event.target.value))}
+                data-testid="thermal-opacity"
+              />
             </label>
             <details open>
               <summary>Visible assumptions</summary>

@@ -11,6 +11,7 @@ const captureOrder: Array<{ key: ReportScreenshotKey; mode: ViewMode }> = [
 
 export async function generateReportWithViewportScreenshots(): Promise<void> {
   const screenshots: ReportScreenshots = {};
+  useAirPathStore.setState({ focusedPoint: undefined, focusedWarningId: undefined, selectedIds: [] });
   for (const capture of captureOrder) {
     useAirPathStore.getState().setViewMode(capture.mode);
     await waitForViewportRender();

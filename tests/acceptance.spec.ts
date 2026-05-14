@@ -24,6 +24,7 @@ test("AirPath GUI self-acceptance flow", async ({ page }) => {
   await page.getByTestId("rack-aisle").fill("1.2");
   await page.getByTestId("rack-heat").fill("16");
   await page.getByTestId("create-rack-array").click();
+  await page.getByTestId("toggle-object-labels").click();
   await expect(page.getByTestId("rack-label").first()).toBeVisible({ timeout: 15_000 });
   await page.getByTestId("rack-label").first().click({ force: true });
   await page.getByTestId("rack-label").nth(1).click({ modifiers: ["Shift"], force: true });
@@ -42,6 +43,7 @@ test("AirPath GUI self-acceptance flow", async ({ page }) => {
   await expect(page.getByText("Undo restored the previous scenario state.")).toBeVisible();
   await page.getByTestId("redo-button").click();
   await expect(page.getByText("Redo restored the next scenario state.")).toBeVisible();
+  await page.getByTestId("toggle-object-labels").click();
   await page.screenshot({ path: shot("02_rack_array.png") });
 
   await page.getByTestId("step-cooling").click();
@@ -50,7 +52,7 @@ test("AirPath GUI self-acceptance flow", async ({ page }) => {
   await page.getByTestId("add-ceiling-supply-diffuser").click();
   await page.getByTestId("add-ceiling-return-grille").click();
   await page.getByTestId("add-in-row-cooler").click();
-  await expect(page.getByText("In-row cooler 1 added.")).toBeVisible();
+  await expect(page.getByText(/In-row cooler \d+ added\./)).toBeVisible();
   await page.screenshot({ path: shot("03_cooling_setup.png") });
 
   await page.getByTestId("step-containment").click();
@@ -63,7 +65,9 @@ test("AirPath GUI self-acceptance flow", async ({ page }) => {
   await page.getByTestId("run-simulation").click();
   await expect(page.getByTestId("results-panel")).toContainText("Simulation Results");
   await expect(page.getByTestId("viewport-metrics")).toContainText("Max inlet");
+  await page.getByTestId("toggle-warning-pins").click();
   await expect(page.getByTestId("warning-cluster").first()).toBeVisible();
+  await page.getByTestId("toggle-warning-pins").click();
 
   await page.getByTestId("view-thermal").click();
   await expect(page.getByTestId("heat-legend")).toBeVisible();
