@@ -122,6 +122,35 @@ airpath/
   engineering-memos/
 ```
 
+## Current Implementation
+
+The first AirPath build uses the requested monorepo layers:
+
+- `apps/web` - Vite, React, TypeScript, Three.js, React Three Fiber, Zustand UI.
+- `packages/scenario-schema` - scenario types, Zod validation, unit conversion, rack array generation, JSON import/export helpers.
+- `packages/solver-core` - simplified 3D voxel airflow and thermal approximation, vector field, temperature field, rack inlet estimates, and warnings.
+- `packages/report-engine` - report data generation, HTML report rendering, print-to-PDF styling, assumptions, and disclaimer.
+- `examples/scenarios` - five sample `.airpath.json` scenarios for import, validation, and demos.
+
+## Local Development
+
+```txt
+npm install
+npm run dev
+npm run build
+npm run test
+npm run lint
+npm run acceptance
+```
+
+The app runs locally through Vite. The default workflow is Five-Minute Mode:
+
+```txt
+Room -> Rack Array -> Cooling -> Containment -> Simulate -> Review -> Export
+```
+
+Validation and acceptance checks are intentionally regression-oriented. They do not certify engineering accuracy.
+
 ---
 
 ## Governing Documents

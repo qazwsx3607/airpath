@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "0.1.0",
+  "metadata": {
+    "id": "sample-overhead-supply-short-circuit",
+    "name": "Overhead supply short-circuit",
+    "description": "Overhead supply diffuser placed near a ceiling return grille.",
+    "createdAt": "2026-05-14T00:00:00.000Z",
+    "updatedAt": "2026-05-14T00:00:00.000Z",
+    "expectedInterpretation": "Warning should identify supply-return short-circuit risk.",
+    "recommendedReportOutput": "Show overhead supply risk and recommended separation.",
+    "validationRelevance": "Supply-return short-circuit warning behavior."
+  },
+  "room": { "id": "room-small", "name": "Small server room", "width": 8, "depth": 6, "height": 3, "ambientTemperatureC": 24 },
+  "rackArrays": [],
+  "racks": [
+    { "id": "overhead-rack-1", "name": "Overhead Test Rack 1", "position": { "x": 3.2, "y": 1.1, "z": 3.2 }, "size": { "width": 0.6, "depth": 1.2, "height": 2.2 }, "orientation": "front-positive-z", "heatLoadKw": 14, "coolingMode": "air-cooled", "liquidCaptureRatio": 0 },
+    { "id": "overhead-rack-2", "name": "Overhead Test Rack 2", "position": { "x": 4.0, "y": 1.1, "z": 3.2 }, "size": { "width": 0.6, "depth": 1.2, "height": 2.2 }, "orientation": "front-positive-z", "heatLoadKw": 14, "coolingMode": "air-cooled", "liquidCaptureRatio": 0 }
+  ],
+  "coolingObjects": [
+    { "id": "ceiling-supply-diffuser-1", "name": "Ceiling supply diffuser 1", "type": "ceiling-supply-diffuser", "position": { "x": 2.6, "y": 2.95, "z": 2.1 }, "size": { "width": 0.7, "depth": 0.7, "height": 0.05 }, "direction": { "x": 0, "y": -1, "z": 0 }, "supplyTemperatureC": 17, "airflowLps": 520, "coolingCapacityKw": 10, "returnMode": "ceiling", "enabled": true },
+    { "id": "ceiling-return-grille-1", "name": "Ceiling return grille 1", "type": "ceiling-return-grille", "position": { "x": 3.2, "y": 2.96, "z": 2.3 }, "size": { "width": 0.9, "depth": 0.9, "height": 0.05 }, "direction": { "x": 0, "y": 1, "z": 0 }, "supplyTemperatureC": 24, "airflowLps": 600, "coolingCapacityKw": 0, "returnMode": "ceiling", "enabled": true }
+  ],
+  "containmentObjects": [],
+  "units": { "temperature": "C", "airflow": "L/s", "dimension": "m", "heat": "kW" },
+  "simulationSettings": { "mode": "formal", "gridResolution": "medium", "iterations": 48, "ambientTemperatureC": 24, "warningTemperatureC": 27, "criticalTemperatureC": 32, "airflowMixingFactor": 0.42, "containmentEffectiveness": 0.72 },
+  "reportSettings": { "includeScreenshots": true, "includeAssumptions": true, "includeDisclaimer": true, "author": "AirPath", "customer": "Concept review", "projectName": "Overhead supply short-circuit" }
+}

@@ -1,0 +1,14 @@
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import { resolve } from "node:path";
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      "@airpath/scenario-schema": resolve(__dirname, "../../packages/scenario-schema/src/index.ts"),
+      "@airpath/solver-core": resolve(__dirname, "../../packages/solver-core/src/index.ts"),
+      "@airpath/report-engine": resolve(__dirname, "../../packages/report-engine/src/index.ts")
+    }
+  }
+});

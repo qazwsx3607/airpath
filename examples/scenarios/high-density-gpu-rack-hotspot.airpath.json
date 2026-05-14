@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "0.1.0",
+  "metadata": {
+    "id": "sample-high-density-gpu-rack-hotspot",
+    "name": "High-density GPU rack hotspot",
+    "description": "High-density rack field with one hybrid liquid-cooled rack and several AI/GPU heat loads.",
+    "createdAt": "2026-05-14T00:00:00.000Z",
+    "updatedAt": "2026-05-14T00:00:00.000Z",
+    "expectedInterpretation": "Hotspot and residual air heat warnings should be visible for high-density racks.",
+    "recommendedReportOutput": "Use to explain mitigation options: containment, airflow, and liquid capture ratio.",
+    "validationRelevance": "Increased rack kW, liquid residual heat, hotspot warnings, and capacity margin."
+  },
+  "room": { "id": "room-medium", "name": "Medium room", "width": 15, "depth": 10, "height": 3.5, "ambientTemperatureC": 24 },
+  "rackArrays": [],
+  "racks": [
+    { "id": "gpu-rack-1", "name": "GPU Rack 1 Hybrid", "position": { "x": 3.4, "y": 1.1, "z": 4.4 }, "size": { "width": 0.6, "depth": 1.2, "height": 2.2 }, "orientation": "front-positive-z", "heatLoadKw": 42, "coolingMode": "hybrid-liquid-cooled", "liquidCaptureRatio": 0.62 },
+    { "id": "gpu-rack-2", "name": "GPU Rack 2", "position": { "x": 4.15, "y": 1.1, "z": 4.4 }, "size": { "width": 0.6, "depth": 1.2, "height": 2.2 }, "orientation": "front-positive-z", "heatLoadKw": 30, "coolingMode": "air-cooled", "liquidCaptureRatio": 0 },
+    { "id": "gpu-rack-3", "name": "GPU Rack 3", "position": { "x": 4.9, "y": 1.1, "z": 4.4 }, "size": { "width": 0.6, "depth": 1.2, "height": 2.2 }, "orientation": "front-positive-z", "heatLoadKw": 42, "coolingMode": "air-cooled", "liquidCaptureRatio": 0 },
+    { "id": "gpu-rack-4", "name": "GPU Rack 4", "position": { "x": 5.65, "y": 1.1, "z": 4.4 }, "size": { "width": 0.6, "depth": 1.2, "height": 2.2 }, "orientation": "front-positive-z", "heatLoadKw": 30, "coolingMode": "air-cooled", "liquidCaptureRatio": 0 }
+  ],
+  "coolingObjects": [
+    { "id": "crac-crah-1", "name": "CRAC / CRAH 1", "type": "crac-crah", "position": { "x": 0.45, "y": 1, "z": 5 }, "size": { "width": 0.8, "depth": 1.1, "height": 2 }, "direction": { "x": 1, "y": 0, "z": 0 }, "supplyTemperatureC": 18, "airflowLps": 1250, "coolingCapacityKw": 34, "returnMode": "crac-return", "enabled": true },
+    { "id": "in-row-cooler-1", "name": "In-row cooler 1", "type": "in-row-cooler", "position": { "x": 4.6, "y": 1, "z": 3.6 }, "size": { "width": 0.6, "depth": 1.2, "height": 2.2 }, "direction": { "x": 0, "y": 0, "z": 1 }, "supplyTemperatureC": 18, "airflowLps": 650, "coolingCapacityKw": 18, "returnMode": "rear-zone", "enabled": true },
+    { "id": "ceiling-return-grille-1", "name": "Ceiling return grille 1", "type": "ceiling-return-grille", "position": { "x": 7.5, "y": 3.46, "z": 7.2 }, "size": { "width": 0.9, "depth": 0.9, "height": 0.05 }, "direction": { "x": 0, "y": 1, "z": 0 }, "supplyTemperatureC": 24, "airflowLps": 850, "coolingCapacityKw": 0, "returnMode": "ceiling", "enabled": true },
+    { "id": "cdu-1", "name": "CDU 1", "type": "cdu", "position": { "x": 13.8, "y": 0.9, "z": 1.1 }, "size": { "width": 0.7, "depth": 1, "height": 1.8 }, "direction": { "x": 0, "y": 0, "z": 1 }, "supplyTemperatureC": 24, "airflowLps": 120, "coolingCapacityKw": 0, "returnMode": "none", "enabled": true, "residualHeatKw": 1.5, "obstructionFactor": 0.4 }
+  ],
+  "containmentObjects": [],
+  "units": { "temperature": "C", "airflow": "L/s", "dimension": "m", "heat": "kW" },
+  "simulationSettings": { "mode": "formal", "gridResolution": "medium", "iterations": 48, "ambientTemperatureC": 24, "warningTemperatureC": 27, "criticalTemperatureC": 32, "airflowMixingFactor": 0.42, "containmentEffectiveness": 0.72 },
+  "reportSettings": { "includeScreenshots": true, "includeAssumptions": true, "includeDisclaimer": true, "author": "AirPath", "customer": "Concept review", "projectName": "High-density GPU rack hotspot" }
+}

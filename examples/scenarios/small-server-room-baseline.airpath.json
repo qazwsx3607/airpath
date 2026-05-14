@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "0.1.0",
+  "metadata": {
+    "id": "sample-small-server-room-baseline",
+    "name": "Small server room baseline",
+    "description": "Small room with one rack row, side cooling, raised floor tile, and ceiling return.",
+    "createdAt": "2026-05-14T00:00:00.000Z",
+    "updatedAt": "2026-05-14T00:00:00.000Z",
+    "expectedInterpretation": "Baseline should show modest rack inlet risk and clear supply-to-return flow.",
+    "recommendedReportOutput": "Use as the fast first-pass pre-sales report template.",
+    "validationRelevance": "Covers rack heat, cooling influence, streamlines, warnings, and report output."
+  },
+  "room": {
+    "id": "room-small",
+    "name": "Small server room",
+    "width": 8,
+    "depth": 6,
+    "height": 3,
+    "ambientTemperatureC": 24
+  },
+  "rackArrays": [
+    {
+      "id": "rack-array-1",
+      "name": "Baseline Row",
+      "rows": 1,
+      "columns": 4,
+      "rowSpacingM": 1,
+      "columnSpacingM": 0.15,
+      "aisleWidthM": 1.2,
+      "startPosition": { "x": 2, "y": 0, "z": 2.8 },
+      "rackSize": { "width": 0.6, "depth": 1.2, "height": 2.2 },
+      "orientation": "front-positive-z",
+      "heatLoadMode": "per-rack",
+      "perRackKw": 8,
+      "totalArrayKw": 32,
+      "customRackKw": {},
+      "coolingMode": "air-cooled",
+      "liquidCaptureRatio": 0
+    }
+  ],
+  "racks": [
+    { "id": "rack-array-1-r1c1", "arrayId": "rack-array-1", "name": "Baseline Row R1C1", "position": { "x": 2, "y": 1.1, "z": 2.8 }, "size": { "width": 0.6, "depth": 1.2, "height": 2.2 }, "orientation": "front-positive-z", "heatLoadKw": 8, "coolingMode": "air-cooled", "liquidCaptureRatio": 0 },
+    { "id": "rack-array-1-r1c2", "arrayId": "rack-array-1", "name": "Baseline Row R1C2", "position": { "x": 2.75, "y": 1.1, "z": 2.8 }, "size": { "width": 0.6, "depth": 1.2, "height": 2.2 }, "orientation": "front-positive-z", "heatLoadKw": 8, "coolingMode": "air-cooled", "liquidCaptureRatio": 0 },
+    { "id": "rack-array-1-r1c3", "arrayId": "rack-array-1", "name": "Baseline Row R1C3", "position": { "x": 3.5, "y": 1.1, "z": 2.8 }, "size": { "width": 0.6, "depth": 1.2, "height": 2.2 }, "orientation": "front-positive-z", "heatLoadKw": 8, "coolingMode": "air-cooled", "liquidCaptureRatio": 0 },
+    { "id": "rack-array-1-r1c4", "arrayId": "rack-array-1", "name": "Baseline Row R1C4", "position": { "x": 4.25, "y": 1.1, "z": 2.8 }, "size": { "width": 0.6, "depth": 1.2, "height": 2.2 }, "orientation": "front-positive-z", "heatLoadKw": 8, "coolingMode": "air-cooled", "liquidCaptureRatio": 0 }
+  ],
+  "coolingObjects": [
+    { "id": "crac-crah-1", "name": "CRAC / CRAH 1", "type": "crac-crah", "position": { "x": 0.45, "y": 1, "z": 3 }, "size": { "width": 0.8, "depth": 1.1, "height": 2 }, "direction": { "x": 1, "y": 0, "z": 0 }, "supplyTemperatureC": 18, "airflowLps": 1650, "coolingCapacityKw": 45, "returnMode": "crac-return", "enabled": true },
+    { "id": "floor-perforated-tile-1", "name": "Floor perforated tile 1", "type": "floor-perforated-tile", "position": { "x": 3.2, "y": 0.02, "z": 3.2 }, "size": { "width": 0.6, "depth": 0.6, "height": 0.04 }, "direction": { "x": 0, "y": 1, "z": 0 }, "supplyTemperatureC": 18, "airflowLps": 480, "coolingCapacityKw": 12, "returnMode": "none", "enabled": true },
+    { "id": "ceiling-return-grille-1", "name": "Ceiling return grille 1", "type": "ceiling-return-grille", "position": { "x": 4, "y": 2.96, "z": 4.3 }, "size": { "width": 0.9, "depth": 0.9, "height": 0.05 }, "direction": { "x": 0, "y": 1, "z": 0 }, "supplyTemperatureC": 24, "airflowLps": 850, "coolingCapacityKw": 0, "returnMode": "ceiling", "enabled": true }
+  ],
+  "containmentObjects": [],
+  "units": { "temperature": "C", "airflow": "L/s", "dimension": "m", "heat": "kW" },
+  "simulationSettings": { "mode": "formal", "gridResolution": "medium", "iterations": 48, "ambientTemperatureC": 24, "warningTemperatureC": 27, "criticalTemperatureC": 32, "airflowMixingFactor": 0.42, "containmentEffectiveness": 0.72 },
+  "reportSettings": { "includeScreenshots": true, "includeAssumptions": true, "includeDisclaimer": true, "author": "AirPath", "customer": "Concept review", "projectName": "Small server room baseline" }
+}

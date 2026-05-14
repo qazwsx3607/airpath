@@ -1,0 +1,9 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/scenario-schema" },
+    { "path": "./packages/solver-core" },
+    { "path": "./packages/report-engine" },
+    { "path": "./apps/web" }
+  ]
+}

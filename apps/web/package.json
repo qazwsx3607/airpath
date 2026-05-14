@@ -1,0 +1,16 @@
+{
+  "name": "@airpath/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build:vite": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@airpath/report-engine": "0.1.0",
+    "@airpath/scenario-schema": "0.1.0",
+    "@airpath/solver-core": "0.1.0"
+  }
+}

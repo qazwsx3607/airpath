@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "0.1.0",
+  "metadata": {
+    "id": "sample-hot-aisle-containment",
+    "name": "Hot aisle containment",
+    "description": "Medium room with hot aisle containment and strengthened return path.",
+    "createdAt": "2026-05-14T00:00:00.000Z",
+    "updatedAt": "2026-05-14T00:00:00.000Z",
+    "expectedInterpretation": "Hot aisle barrier should pull warmer exhaust toward return and reduce recirculation risk.",
+    "recommendedReportOutput": "Show return path and hot aisle containment assumptions.",
+    "validationRelevance": "Return boundary behavior and containment effects."
+  },
+  "room": { "id": "room-medium", "name": "Medium room", "width": 15, "depth": 10, "height": 3.5, "ambientTemperatureC": 24 },
+  "rackArrays": [],
+  "racks": [
+    { "id": "hot-rack-1", "name": "Hot Row R1", "position": { "x": 4, "y": 1.1, "z": 4.2 }, "size": { "width": 0.6, "depth": 1.2, "height": 2.2 }, "orientation": "front-positive-z", "heatLoadKw": 16, "coolingMode": "air-cooled", "liquidCaptureRatio": 0 },
+    { "id": "hot-rack-2", "name": "Hot Row R2", "position": { "x": 4.75, "y": 1.1, "z": 4.2 }, "size": { "width": 0.6, "depth": 1.2, "height": 2.2 }, "orientation": "front-positive-z", "heatLoadKw": 16, "coolingMode": "air-cooled", "liquidCaptureRatio": 0 },
+    { "id": "hot-rack-3", "name": "Hot Row R3", "position": { "x": 5.5, "y": 1.1, "z": 4.2 }, "size": { "width": 0.6, "depth": 1.2, "height": 2.2 }, "orientation": "front-positive-z", "heatLoadKw": 16, "coolingMode": "air-cooled", "liquidCaptureRatio": 0 },
+    { "id": "hot-rack-4", "name": "Hot Row R4", "position": { "x": 6.25, "y": 1.1, "z": 4.2 }, "size": { "width": 0.6, "depth": 1.2, "height": 2.2 }, "orientation": "front-positive-z", "heatLoadKw": 16, "coolingMode": "air-cooled", "liquidCaptureRatio": 0 }
+  ],
+  "coolingObjects": [
+    { "id": "crac-crah-1", "name": "CRAC / CRAH 1", "type": "crac-crah", "position": { "x": 0.45, "y": 1, "z": 4 }, "size": { "width": 0.8, "depth": 1.1, "height": 2 }, "direction": { "x": 1, "y": 0, "z": 0 }, "supplyTemperatureC": 18, "airflowLps": 1500, "coolingCapacityKw": 44, "returnMode": "crac-return", "enabled": true },
+    { "id": "wall-return-grille-1", "name": "Wall return grille 1", "type": "wall-return-grille", "position": { "x": 14.95, "y": 1.8, "z": 6.8 }, "size": { "width": 0.08, "depth": 1.2, "height": 0.8 }, "direction": { "x": -1, "y": 0, "z": 0 }, "supplyTemperatureC": 24, "airflowLps": 1000, "coolingCapacityKw": 0, "returnMode": "wall", "enabled": true },
+    { "id": "ceiling-return-grille-1", "name": "Ceiling return grille 1", "type": "ceiling-return-grille", "position": { "x": 7.5, "y": 3.46, "z": 6.9 }, "size": { "width": 0.9, "depth": 0.9, "height": 0.05 }, "direction": { "x": 0, "y": 1, "z": 0 }, "supplyTemperatureC": 24, "airflowLps": 950, "coolingCapacityKw": 0, "returnMode": "ceiling", "enabled": true }
+  ],
+  "containmentObjects": [
+    { "id": "hot-aisle-1", "name": "Hot aisle containment 1", "type": "hot-aisle", "position": { "x": 5.1, "y": 1.35, "z": 3.4 }, "size": { "width": 4.2, "depth": 0.08, "height": 2.7 }, "enabled": true, "generatedFromRackIds": ["hot-rack-1", "hot-rack-2", "hot-rack-3", "hot-rack-4"] },
+    { "id": "side-panel-1", "name": "Side panel 1", "type": "side-panel", "position": { "x": 7.1, "y": 1.2, "z": 4.1 }, "size": { "width": 0.08, "depth": 1.4, "height": 2.4 }, "enabled": true, "generatedFromRackIds": ["hot-rack-4"] }
+  ],
+  "units": { "temperature": "C", "airflow": "L/s", "dimension": "m", "heat": "kW" },
+  "simulationSettings": { "mode": "formal", "gridResolution": "medium", "iterations": 48, "ambientTemperatureC": 24, "warningTemperatureC": 27, "criticalTemperatureC": 32, "airflowMixingFactor": 0.42, "containmentEffectiveness": 0.72 },
+  "reportSettings": { "includeScreenshots": true, "includeAssumptions": true, "includeDisclaimer": true, "author": "AirPath", "customer": "Concept review", "projectName": "Hot aisle containment" }
+}
