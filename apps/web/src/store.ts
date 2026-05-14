@@ -220,7 +220,7 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
     const object = createCoolingObject(type, state.scenario.coolingObjects.filter((candidate) => candidate.type === type).length + 1, state.scenario.room);
     setWithPreview(set, { ...state.scenario, coolingObjects: [...state.scenario.coolingObjects, object] }, {
       selectedIds: [object.id],
-      activeStep: "containment",
+      activeStep: "cooling",
       rightTab: "inspector",
       statusMessage: `${object.name} added.`
     });
@@ -235,7 +235,7 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
     );
     setWithPreview(set, { ...state.scenario, containmentObjects: [...state.scenario.containmentObjects, object] }, {
       selectedIds: [object.id],
-      activeStep: "review",
+      activeStep: "containment",
       rightTab: "inspector",
       statusMessage: `${object.name} added.`
     });

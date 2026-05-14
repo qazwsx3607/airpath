@@ -53,6 +53,7 @@ export function Viewport3D() {
           selected={selectedIds.includes(rack.id)}
           inletTemp={result.rackInlets.find((inlet) => inlet.rackId === rack.id)?.inletTemperatureC}
           onSelect={(event) => selectObject(rack.id, event.nativeEvent.shiftKey)}
+          onLabelSelect={(multi) => selectObject(rack.id, multi)}
         />
       ))}
       {showGhost && <GhostRackPreview racks={generateRackArray(rackDraft)} roomWidth={scenario.room.width} roomDepth={scenario.room.depth} />}
@@ -99,12 +100,14 @@ function RackMesh({
   rack,
   selected,
   inletTemp,
-  onSelect
+  onSelect,
+  onLabelSelect
 }: {
   rack: Rack;
   selected: boolean;
   inletTemp?: number;
   onSelect: (event: ThreeEvent<MouseEvent>) => void;
+  onLabelSelect: (multi: boolean) => void;
 }) {
   const front = orientationVector(rack.orientation);
   const riskColor = thermalColor(inletTemp ?? 24, 24, 27, 32);
@@ -127,8 +130,18 @@ function RackMesh({
         <boxGeometry args={markerSize} />
         <meshStandardMaterial color="#38BDF8" emissive="#38BDF8" emissiveIntensity={0.18} />
       </mesh>
-      <Html position={[0, rack.size.height / 2 + 0.22, 0]} center distanceFactor={8}>
-        <span className={`object-label ${selected ? "selected" : ""}`}>{rack.name.replace("Rack Array ", "R")}</span>
+      <Html position={[0, rack.size.height / 2 + 0.22, 0]} center>
+        <button
+          type="button"
+          className={`object-label ${selected ? "selected" : ""}`}
+          data-testid="rack-label"
+          onClick={(event) => {
+            event.stopPropagation();
+            onLabelSelect(event.shiftKey);
+          }}
+        >
+          {rack.name.replace("Rack Array ", "R")}
+        </button>
       </Html>
     </group>
   );
@@ -180,7 +193,7 @@ function CoolingMesh({
         <Edges color={selected ? "#38BDF8" : color} />
       </mesh>
       <primitive object={arrow} />
-      <Html position={[0, object.size.height / 2 + 0.16, 0]} center distanceFactor={8}>
+      <Html position={[0, object.size.height / 2 + 0.16, 0]} center style={{ pointerEvents: "none" }}>
         <span className={`object-label ${isReturn ? "return" : "supply"}`}>{object.name}</span>
       </Html>
     </group>
@@ -205,7 +218,7 @@ function ContainmentMesh({
         <meshStandardMaterial color={color} transparent opacity={object.enabled ? 0.2 : 0.08} depthWrite={false} />
         <Edges color={selected ? "#E5EDF5" : color} />
       </mesh>
-      <Html position={[0, object.size.height / 2 + 0.14, 0]} center distanceFactor={8}>
+      <Html position={[0, object.size.height / 2 + 0.14, 0]} center style={{ pointerEvents: "none" }}>
         <span className="object-label containment">{object.name}</span>
       </Html>
     </group>
@@ -239,7 +252,7 @@ function ThermalSlice({ result }: { result: SimulationResult }) {
           <meshBasicMaterial color={cell.color} transparent opacity={cell.opacity} depthWrite={false} />
         </mesh>
       ))}
-      <Html position={[0.7, 0.15, 0.7]} transform={false}>
+      <Html position={[0.7, 0.15, 0.7]} transform={false} style={{ pointerEvents: "none" }}>
         <div className="heat-legend" data-testid="heat-legend">
           <strong>Thermal slice C</strong>
           <span className="legend-bar" />

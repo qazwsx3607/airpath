@@ -724,6 +724,16 @@ dd {
   text-overflow: ellipsis;
 }
 
+.object-label:not(button) {
+  pointer-events: none;
+}
+
+button.object-label {
+  cursor: pointer;
+  min-height: 24px;
+  pointer-events: auto;
+}
+
 .object-label.selected,
 .object-label.supply {
   color: var(--brand-primary);
@@ -842,6 +852,14 @@ dd {
 
 .compare-grid .compare-summary {
   grid-column: span 1;
+}
+
+.compare-summary strong {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.25;
+  max-height: 46px;
+  overflow: hidden;
 }
 
 @media (max-width: 980px) {
