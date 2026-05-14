@@ -1,5 +1,6 @@
-import { AlertTriangle, Crosshair, FileText, Flame, Move, PanelRightClose, Trash2 } from "lucide-react";
+import { AlertTriangle, FileText, Flame, Move, PanelRightClose, Trash2 } from "lucide-react";
 import { type RackCoolingMode } from "@airpath/scenario-schema";
+import { localizeSeverity, localizeWarningLabel, t } from "../i18n";
 import { generateReportWithViewportScreenshots } from "../reportCapture";
 import { useAirPathStore, type RightTab } from "../store";
 
@@ -11,6 +12,7 @@ const tabs: Array<{ key: RightTab; label: string }> = [
 ];
 
 export function RightPanel() {
+  const language = useAirPathStore((state) => state.language);
   const collapsed = useAirPathStore((state) => state.rightCollapsed);
   const rightTab = useAirPathStore((state) => state.rightTab);
   const setRightTab = useAirPathStore((state) => state.setRightTab);
@@ -35,15 +37,15 @@ export function RightPanel() {
     <aside className="right-panel" aria-label="Inspector and results">
       <div className="panel-header">
         <div>
-          <span>Scenario Output</span>
-          <strong>Inspector / Results</strong>
+          <span>{t(language, "scenarioOutput")}</span>
+          <strong>{t(language, "inspectorResults")}</strong>
         </div>
         <PanelRightClose size={17} aria-hidden="true" />
       </div>
       <div className="right-tabs">
         {tabs.map((tab) => (
           <button key={tab.key} type="button" className={rightTab === tab.key ? "active" : ""} onClick={() => setRightTab(tab.key)} data-testid={`tab-${tab.key}`}>
-            {tab.label}
+            {t(language, tab.key)}
           </button>
         ))}
       </div>
@@ -58,9 +60,11 @@ export function RightPanel() {
 }
 
 function Inspector() {
+  const language = useAirPathStore((state) => state.language);
   const scenario = useAirPathStore((state) => state.scenario);
   const selectedIds = useAirPathStore((state) => state.selectedIds);
   const batchEditSelectedRacks = useAirPathStore((state) => state.batchEditSelectedRacks);
+  const batchEditSelectedCoolingObjects = useAirPathStore((state) => state.batchEditSelectedCoolingObjects);
   const resizeSelectedRacks = useAirPathStore((state) => state.resizeSelectedRacks);
   const moveSelectedRacks = useAirPathStore((state) => state.moveSelectedRacks);
   const deleteSelected = useAirPathStore((state) => state.deleteSelected);
@@ -72,15 +76,15 @@ function Inspector() {
   if (selectedIds.length === 0) {
     return (
       <section className="panel-section" data-testid="inspector-empty">
-        <h2>Selection</h2>
-        <p className="hint">Click a rack, cooling object, containment panel, or warning pin in the 3D viewport.</p>
+        <h2>{t(language, "selection")}</h2>
+        <p className="hint">{t(language, "selectionHint")}</p>
       </section>
     );
   }
 
   return (
     <section className="panel-section" data-testid="inspector">
-      <h2>Selection</h2>
+      <h2>{t(language, "selection")}</h2>
       <div className="selection-chip-row">
         {selectedIds.slice(0, 8).map((id) => (
           <span key={id} className="chip">
@@ -92,7 +96,7 @@ function Inspector() {
         <div className="inspector-group">
           <h3>{selectedRacks.length === 1 ? selectedRacks[0].name : `${selectedRacks.length} racks selected`}</h3>
           <label>
-            Heat load
+            {language === "zh" ? "熱負載" : "Heat load"}
             <span className="input-with-unit">
               <input
                 type="number"
@@ -106,19 +110,19 @@ function Inspector() {
             </span>
           </label>
           <label>
-            Cooling mode
+            {t(language, "coolingMode")}
             <select
               defaultValue={selectedRacks[0].coolingMode}
               data-testid="selected-cooling-mode"
               onChange={(event) => batchEditSelectedRacks({ coolingMode: event.target.value as RackCoolingMode })}
             >
-              <option value="air-cooled">Air cooled</option>
-              <option value="hybrid-liquid-cooled">Hybrid liquid cooled</option>
-              <option value="direct-liquid-cooled">Direct liquid cooled</option>
+              <option value="air-cooled">{t(language, "airCooled")}</option>
+              <option value="hybrid-liquid-cooled">{t(language, "hybridLiquid")}</option>
+              <option value="direct-liquid-cooled">{t(language, "directLiquid")}</option>
             </select>
           </label>
           <label>
-            Liquid capture ratio
+            {t(language, "liquidCapture")}
             <span className="input-with-unit">
               <input
                 type="number"
@@ -133,7 +137,7 @@ function Inspector() {
             </span>
           </label>
           <details>
-            <summary>Move and resize</summary>
+            <summary>{language === "zh" ? "移動與調整尺寸" : "Move and resize"}</summary>
             <div className="button-row compact">
               <button type="button" className="secondary" onClick={() => moveSelectedRacks(-0.25, 0)}>
                 <Move size={14} />
@@ -164,11 +168,43 @@ function Inspector() {
           <dl>
             <dt>Type</dt>
             <dd>{selectedCooling[0].type}</dd>
-            <dt>Supply</dt>
-            <dd>{selectedCooling[0].supplyTemperatureC.toFixed(1)} C, {selectedCooling[0].airflowLps.toFixed(0)} L/s</dd>
-            <dt>Capacity</dt>
-            <dd>{selectedCooling[0].coolingCapacityKw.toFixed(1)} kW</dd>
           </dl>
+          <h3>{language === "zh" ? "冷卻屬性" : "Cooling properties"}</h3>
+          <div className="form-grid two">
+            <MiniNumber
+              label={language === "zh" ? "送風溫度" : "Supply temperature"}
+              value={selectedCooling[0].supplyTemperatureC}
+              step={0.5}
+              min={0}
+              testId="selected-cooling-supply-temp"
+              onCommit={(supplyTemperatureC) => batchEditSelectedCoolingObjects({ supplyTemperatureC })}
+            />
+            <MiniNumber
+              label={language === "zh" ? "風量" : "Airflow rate"}
+              value={selectedCooling[0].airflowLps}
+              step={25}
+              min={0}
+              testId="selected-cooling-airflow"
+              onCommit={(airflowLps) => batchEditSelectedCoolingObjects({ airflowLps })}
+            />
+            <MiniNumber
+              label={language === "zh" ? "容量" : "Capacity"}
+              value={selectedCooling[0].coolingCapacityKw}
+              step={1}
+              min={0}
+              testId="selected-cooling-capacity"
+              onCommit={(coolingCapacityKw) => batchEditSelectedCoolingObjects({ coolingCapacityKw })}
+            />
+            <label>
+              {language === "zh" ? "啟用" : "Enabled"}
+              <input
+                type="checkbox"
+                checked={selectedCooling[0].enabled}
+                data-testid="selected-cooling-enabled"
+                onChange={(event) => batchEditSelectedCoolingObjects({ enabled: event.target.checked })}
+              />
+            </label>
+          </div>
         </div>
       )}
 
@@ -193,21 +229,22 @@ function Inspector() {
 }
 
 function Results() {
+  const language = useAirPathStore((state) => state.language);
   const result = useAirPathStore((state) => state.result);
   return (
     <section className="panel-section" data-testid="results-panel">
-      <h2>Simulation Results</h2>
+      <h2>{t(language, "simulationResults")}</h2>
       <div className="result-grid">
-        <Metric label="Max rack inlet" value={`${result.metrics.maxRackInletTemperatureC.toFixed(1)} C`} />
-        <Metric label="Average inlet" value={`${result.metrics.averageRackInletTemperatureC.toFixed(1)} C`} />
-        <Metric label="Hotspots" value={`${result.metrics.hotspotCount}`} />
-        <Metric label="Cooling margin" value={`${result.metrics.coolingCapacityMarginKw.toFixed(1)} kW`} />
-        <Metric label="Warnings" value={`${result.metrics.warningCount}`} />
-        <Metric label="Critical" value={`${result.metrics.criticalWarningCount}`} />
-        <Metric label="Elapsed" value={`${result.elapsedMs.toFixed(1)} ms`} />
-        <Metric label="Iterations" value={`${result.iterationCount}`} />
+        <Metric label={t(language, "maxRackInlet")} value={`${result.metrics.maxRackInletTemperatureC.toFixed(1)} C`} />
+        <Metric label={t(language, "averageInlet")} value={`${result.metrics.averageRackInletTemperatureC.toFixed(1)} C`} />
+        <Metric label={t(language, "hotspots")} value={`${result.metrics.hotspotCount}`} />
+        <Metric label={t(language, "coolingMargin")} value={`${result.metrics.coolingCapacityMarginKw.toFixed(1)} kW`} />
+        <Metric label={t(language, "warnings")} value={`${result.metrics.warningCount}`} />
+        <Metric label={t(language, "critical")} value={`${result.metrics.criticalWarningCount}`} />
+        <Metric label={t(language, "elapsed")} value={`${result.elapsedMs.toFixed(1)} ms`} />
+        <Metric label={t(language, "iterations")} value={`${result.iterationCount}`} />
       </div>
-      <h3>Rack inlet estimates</h3>
+      <h3>{t(language, "rackInletEstimates")}</h3>
       <div className="compact-table" data-testid="rack-inlets">
         {result.rackInlets.slice(0, 12).map((rack) => (
           <div key={rack.rackId}>
@@ -221,18 +258,19 @@ function Results() {
 }
 
 function Warnings() {
+  const language = useAirPathStore((state) => state.language);
   const warnings = useAirPathStore((state) => state.result.warnings);
   const focusWarning = useAirPathStore((state) => state.focusWarning);
   return (
     <section className="panel-section" data-testid="warnings-panel">
-      <h2>Warnings</h2>
-      {warnings.length === 0 && <p className="hint">No warning-level risks were generated for the current scenario.</p>}
+      <h2>{t(language, "warnings")}</h2>
+      {warnings.length === 0 && <p className="hint">{language === "zh" ? "目前情境未產生警示等級風險。" : "No warning-level risks were generated for the current scenario."}</p>}
       <div className="warning-stack">
         {warnings.map((warning) => (
           <button key={warning.id} type="button" className={`warning-card ${warning.severity}`} onClick={() => focusWarning(warning)} data-testid="warning-card">
             <AlertTriangle size={16} aria-hidden="true" />
-            <span>{warning.severity}</span>
-            <strong>{warning.label}</strong>
+            <span>{localizeSeverity(language, warning.severity)}</span>
+            <strong>{localizeWarningLabel(language, warning.label)}</strong>
             <p>{warning.message}</p>
             <small>{warning.suggestedMitigation}</small>
           </button>
@@ -243,25 +281,65 @@ function Warnings() {
 }
 
 function ReportTab() {
+  const language = useAirPathStore((state) => state.language);
   const reportHtml = useAirPathStore((state) => state.reportHtml);
   const scenario = useAirPathStore((state) => state.scenario);
+  const updateReportSettings = useAirPathStore((state) => state.updateReportSettings);
+  const reportSettings = scenario.reportSettings;
   return (
     <section className="panel-section report-panel" data-testid="report-panel">
-      <h2>Report Export</h2>
+      <h2>{t(language, "reportExport")}</h2>
+      <details open>
+        <summary>{t(language, "reportMetadata")}</summary>
+        <div className="form-grid two report-meta-grid">
+          <TextField label={t(language, "companyName")} value={reportSettings.companyName} testId="report-company" onCommit={(companyName) => updateReportSettings({ companyName })} />
+          <TextField label={t(language, "clientName")} value={reportSettings.clientName} testId="report-client" onCommit={(clientName) => updateReportSettings({ clientName, customer: clientName })} />
+          <TextField label={t(language, "projectName")} value={reportSettings.projectName} testId="report-project" onCommit={(projectName) => updateReportSettings({ projectName })} />
+          <TextField label={t(language, "caseName")} value={reportSettings.caseName} testId="report-case" onCommit={(caseName) => updateReportSettings({ caseName })} />
+          <TextField label={t(language, "reportTitle")} value={reportSettings.reportTitle} testId="report-title" onCommit={(reportTitle) => updateReportSettings({ reportTitle })} />
+          <TextField label={t(language, "author")} value={reportSettings.author} testId="report-author" onCommit={(author) => updateReportSettings({ author })} />
+          <TextField label={t(language, "reportDate")} value={reportSettings.reportDate} testId="report-date" onCommit={(reportDate) => updateReportSettings({ reportDate })} />
+          <TextField label={t(language, "revision")} value={reportSettings.revision} testId="report-revision" onCommit={(revision) => updateReportSettings({ revision })} />
+        </div>
+        <label className="logo-upload">
+          {t(language, "logo")}
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/svg+xml"
+            data-testid="report-logo"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              const reader = new FileReader();
+              reader.addEventListener("load", () => updateReportSettings({ logoDataUrl: String(reader.result ?? "") }));
+              reader.readAsDataURL(file);
+            }}
+          />
+        </label>
+      </details>
       <div className="button-row">
         <button type="button" className="primary" onClick={() => void generateReportWithViewportScreenshots()}>
           <FileText size={15} />
-          Generate
+          {t(language, "generate")}
         </button>
         <button type="button" className="secondary" onClick={() => downloadReport(reportHtml, `${scenario.metadata.name}.html`)} data-testid="download-report">
-          Download HTML
+          {t(language, "downloadHtml")}
         </button>
         <button type="button" className="secondary" onClick={() => openReport(reportHtml)}>
-          Open
+          {t(language, "open")}
         </button>
       </div>
       <iframe title="AirPath report preview" srcDoc={reportHtml} data-testid="report-preview" />
     </section>
+  );
+}
+
+function TextField({ label, value, testId, onCommit }: { label: string; value: string; testId: string; onCommit: (value: string) => void }) {
+  return (
+    <label>
+      {label}
+      <input type="text" defaultValue={value} data-testid={testId} onBlur={(event) => onCommit(event.target.value)} />
+    </label>
   );
 }
 
@@ -274,11 +352,25 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MiniNumber({ label, value, onCommit }: { label: string; value: number; onCommit: (value: number) => void }) {
+function MiniNumber({
+  label,
+  value,
+  min = 0.1,
+  step = 0.1,
+  testId,
+  onCommit
+}: {
+  label: string;
+  value: number;
+  min?: number;
+  step?: number;
+  testId?: string;
+  onCommit: (value: number) => void;
+}) {
   return (
     <label>
       {label}
-      <input type="number" min={0.1} step={0.1} defaultValue={value} onBlur={(event) => onCommit(Number(event.target.value))} />
+      <input type="number" min={min} step={step} defaultValue={value} data-testid={testId} onBlur={(event) => onCommit(Number(event.target.value))} />
     </label>
   );
 }

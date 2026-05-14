@@ -1,9 +1,11 @@
 import { create } from "zustand";
 import {
   type ContainmentType,
+  type CoolingObject,
   type CoolingObjectType,
   type Rack,
   type RackArrayInput,
+  type ReportSettings,
   type RoomTemplateKey,
   type Scenario,
   type Size3,
@@ -33,6 +35,9 @@ import { buildSampleScenarios } from "./sampleScenarios";
 export type ViewMode = "solid" | "thermal" | "airflow" | "combined" | "slice" | "report";
 export type WizardStep = "room" | "racks" | "cooling" | "containment" | "review";
 export type RightTab = "inspector" | "results" | "warnings" | "report";
+export type Language = "en" | "zh";
+export type EditMode = "locked" | "select" | "move";
+export type SliceAxis = "xz" | "xy" | "yz";
 
 interface AirPathState {
   scenario: Scenario;
@@ -46,15 +51,23 @@ interface AirPathState {
   activeStep: WizardStep;
   rightTab: RightTab;
   viewMode: ViewMode;
+  language: Language;
+  editMode: EditMode;
   leftCollapsed: boolean;
   rightCollapsed: boolean;
   bottomCollapsed: boolean;
   showGrid: boolean;
   showObjectLabels: boolean;
   showWarningPins: boolean;
+  showAirflowLayer: boolean;
+  showHeatmapLayer: boolean;
+  showDimensions: boolean;
   particleDensity: number;
   particleSpeed: number;
+  airflowOpacity: number;
   thermalOpacity: number;
+  sliceAxis: SliceAxis;
+  slicePosition: number;
   reportScreenshots: ReportScreenshots;
   reportHtml: string;
   scenarioB?: Scenario;
@@ -65,15 +78,24 @@ interface AirPathState {
   setActiveStep: (step: WizardStep) => void;
   setRightTab: (tab: RightTab) => void;
   setViewMode: (mode: ViewMode) => void;
+  setLanguage: (language: Language) => void;
+  setEditMode: (mode: EditMode) => void;
   toggleLeft: () => void;
   toggleRight: () => void;
   toggleBottom: () => void;
   toggleGrid: () => void;
   toggleObjectLabels: () => void;
   toggleWarningPins: () => void;
+  toggleAirflowLayer: () => void;
+  toggleHeatmapLayer: () => void;
+  toggleDimensions: () => void;
   setParticleDensity: (value: number) => void;
   setParticleSpeed: (value: number) => void;
+  setAirflowOpacity: (value: number) => void;
   setThermalOpacity: (value: number) => void;
+  setSliceAxis: (axis: SliceAxis) => void;
+  setSlicePosition: (value: number) => void;
+  updateReportSettings: (patch: Partial<ReportSettings>) => void;
   undo: () => void;
   redo: () => void;
   applyRoomTemplate: (template: RoomTemplateKey) => void;
@@ -84,6 +106,9 @@ interface AirPathState {
   selectObject: (id: string, multi?: boolean) => void;
   clearSelection: () => void;
   batchEditSelectedRacks: (patch: Partial<Pick<Rack, "heatLoadKw" | "coolingMode" | "liquidCaptureRatio" | "orientation">>) => void;
+  batchEditSelectedCoolingObjects: (
+    patch: Partial<Pick<CoolingObject, "supplyTemperatureC" | "airflowLps" | "coolingCapacityKw" | "enabled">>
+  ) => void;
   resizeSelectedRacks: (size: Partial<Size3>) => void;
   moveSelectedRacks: (dx: number, dz: number) => void;
   updateRackPositionPreview: (rackId: string, x: number, z: number) => void;
@@ -119,15 +144,23 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
   activeStep: "room",
   rightTab: "results",
   viewMode: "solid",
+  language: initialScenario.reportSettings.language,
+  editMode: "select",
   leftCollapsed: false,
   rightCollapsed: false,
   bottomCollapsed: false,
   showGrid: true,
   showObjectLabels: false,
   showWarningPins: false,
-  particleDensity: 20,
+  showAirflowLayer: true,
+  showHeatmapLayer: true,
+  showDimensions: false,
+  particleDensity: 34,
   particleSpeed: 1,
+  airflowOpacity: 0.62,
   thermalOpacity: 0.48,
+  sliceAxis: "xz",
+  slicePosition: 0.32,
   reportScreenshots: {},
   reportHtml: renderHtmlReport(createReportData(initialScenario, initialResult)),
   statusMessage: "Ready for a 5-minute airflow review.",
@@ -135,15 +168,43 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
   setActiveStep: (activeStep) => set({ activeStep }),
   setRightTab: (rightTab) => set({ rightTab }),
   setViewMode: (viewMode) => set({ viewMode }),
+  setLanguage: (language) => {
+    const state = get();
+    const scenario = validateScenario({ ...state.scenario, reportSettings: { ...state.scenario.reportSettings, language } });
+    set({
+      language,
+      scenario,
+      reportHtml: renderHtmlReport(createReportData(scenario, state.result, state.reportScreenshots)),
+      statusMessage: language === "zh" ? "已切換為中文介面。" : "Language switched to English."
+    });
+  },
+  setEditMode: (editMode) => set({ editMode }),
   toggleLeft: () => set((state) => ({ leftCollapsed: !state.leftCollapsed })),
   toggleRight: () => set((state) => ({ rightCollapsed: !state.rightCollapsed })),
   toggleBottom: () => set((state) => ({ bottomCollapsed: !state.bottomCollapsed })),
   toggleGrid: () => set((state) => ({ showGrid: !state.showGrid })),
   toggleObjectLabels: () => set((state) => ({ showObjectLabels: !state.showObjectLabels })),
   toggleWarningPins: () => set((state) => ({ showWarningPins: !state.showWarningPins })),
+  toggleAirflowLayer: () => set((state) => ({ showAirflowLayer: !state.showAirflowLayer })),
+  toggleHeatmapLayer: () => set((state) => ({ showHeatmapLayer: !state.showHeatmapLayer })),
+  toggleDimensions: () => set((state) => ({ showDimensions: !state.showDimensions })),
   setParticleDensity: (particleDensity) => set({ particleDensity }),
   setParticleSpeed: (particleSpeed) => set({ particleSpeed }),
+  setAirflowOpacity: (airflowOpacity) => set({ airflowOpacity }),
   setThermalOpacity: (thermalOpacity) => set({ thermalOpacity }),
+  setSliceAxis: (sliceAxis) => set({ sliceAxis }),
+  setSlicePosition: (slicePosition) => set({ slicePosition }),
+  updateReportSettings: (patch) => {
+    const state = get();
+    const reportSettings = { ...state.scenario.reportSettings, ...patch };
+    const scenario = validateScenario({ ...state.scenario, reportSettings });
+    set({
+      scenario,
+      language: reportSettings.language,
+      reportHtml: renderHtmlReport(createReportData(scenario, state.result, state.reportScreenshots)),
+      statusMessage: reportSettings.language === "zh" ? "報告資料已更新。" : "Report metadata updated."
+    });
+  },
   undo: () => {
     const state = get();
     const previous = state.historyPast.at(-1);
@@ -262,6 +323,13 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
     );
     setWithPreview(set, { ...state.scenario, racks }, { ...historyPatch(state), statusMessage: `Updated ${selected.size} selected rack(s).` });
   },
+  batchEditSelectedCoolingObjects: (patch) => {
+    const state = get();
+    const selected = new Set(state.selectedIds);
+    if (selected.size === 0) return;
+    const coolingObjects = state.scenario.coolingObjects.map((object) => (selected.has(object.id) ? { ...object, ...patch } : object));
+    setWithPreview(set, { ...state.scenario, coolingObjects }, { ...historyPatch(state), statusMessage: `Updated ${selected.size} selected cooling object(s).` });
+  },
   resizeSelectedRacks: (size) => {
     const state = get();
     const selected = new Set(state.selectedIds);
@@ -365,7 +433,7 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
       selectedIds: [],
       focusedPoint: undefined,
       focusedWarningId: undefined,
-      statusMessage: "Report preview generated with embedded viewport images."
+      statusMessage: state.language === "zh" ? "報告預覽已產生並嵌入視窗截圖。" : "Report preview generated with embedded viewport images."
     });
   },
   loadSample: (key) => {
@@ -383,6 +451,7 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
       activeStep: "review",
       rightTab: "results",
       viewMode: "solid",
+      language: scenario.reportSettings.language,
       reportScreenshots: {},
       reportHtml: renderHtmlReport(createReportData(scenario, result)),
       statusMessage: `${sample.label} loaded.`
@@ -398,6 +467,7 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
       ...historyPatch(state),
       rackDraft: defaultRackArrayInput(scenario.room),
       selectedIds: [],
+      language: scenario.reportSettings.language,
       reportScreenshots: {},
       reportHtml: renderHtmlReport(createReportData(scenario, result)),
       statusMessage: "Scenario JSON imported."
@@ -466,6 +536,7 @@ function setWithPreview(
   set({
     scenario,
     result,
+    language: scenario.reportSettings.language,
     reportScreenshots: {},
     reportHtml: renderHtmlReport(createReportData(scenario, result)),
     ...patch

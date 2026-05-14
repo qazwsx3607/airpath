@@ -29,10 +29,13 @@ It is designed to support:
 - Cold aisle and hot aisle containment
 - 3D airflow particle lines / streamlines
 - Thermal heatmaps
+- Horizontal / vertical thermal slice controls
+- Visual layer controls for grid, labels, warnings, airflow, heatmap, slice, and dimensions
 - Rack inlet temperature estimates
 - Hotspot warnings
 - Scenario comparison
-- HTML report export with print-to-PDF styling
+- Consultant-style HTML report export with project metadata, assumptions, disclaimer, and print-to-PDF styling
+- English / Chinese UI and report switching
 
 ---
 
@@ -131,6 +134,8 @@ The first AirPath build uses the requested monorepo layers:
 - `packages/solver-core` - simplified 3D voxel airflow and thermal approximation, vector field, temperature field, rack inlet estimates, and warnings.
 - `packages/report-engine` - report data generation, HTML report rendering, print-to-PDF styling, assumptions, and disclaimer.
 - `examples/scenarios` - five sample `.airpath.json` scenarios for import, validation, and demos.
+
+The current web app includes lock/select/move manipulation modes, undo/redo, layer controls, smoother vector-field streamlines, XZ/XY/YZ thermal slices, report metadata editing, and English/Chinese switching. Simulation and report language remains bounded by `MODEL_ASSUMPTIONS.md`: results are conceptual pre-sales risk indicators, not certified CFD.
 
 ## Local Development
 

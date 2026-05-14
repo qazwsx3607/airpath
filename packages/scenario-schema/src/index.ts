@@ -139,7 +139,17 @@ export const ReportSettingsSchema = z.object({
   includeDisclaimer: z.boolean(),
   author: z.string(),
   customer: z.string(),
-  projectName: z.string()
+  projectName: z.string(),
+  language: z.enum(["en", "zh"]).default("en"),
+  companyName: z.string().default("AirPath Consulting"),
+  clientName: z.string().default("Concept review"),
+  caseName: z.string().default("Baseline review"),
+  reportTitle: z.string().default("Pre-Sales Airflow and Thermal Review"),
+  reportDate: z.string().default(""),
+  revision: z.string().default("R0"),
+  logoDataUrl: z.string().default(""),
+  preparedByTitle: z.string().default("Pre-sales engineering"),
+  documentId: z.string().default("")
 });
 
 export const ScenarioMetadataSchema = z.object({
@@ -241,7 +251,17 @@ export const defaultReportSettings: ReportSettings = {
   includeDisclaimer: true,
   author: "AirPath",
   customer: "Concept review",
-  projectName: "AirPath Scenario"
+  projectName: "AirPath Scenario",
+  language: "en",
+  companyName: "AirPath Consulting",
+  clientName: "Concept review",
+  caseName: "Baseline review",
+  reportTitle: "Pre-Sales Airflow and Thermal Review",
+  reportDate: "",
+  revision: "R0",
+  logoDataUrl: "",
+  preparedByTitle: "Pre-sales engineering",
+  documentId: ""
 };
 
 export function residualAirHeatKw(totalItKw: number, liquidCaptureRatio: number, mode: RackCoolingMode): number {

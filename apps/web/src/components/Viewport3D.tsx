@@ -10,11 +10,11 @@ import {
   type Vector3,
   generateRackArray,
   isReturnObject,
-  isSupplyObject,
   orientationVector
 } from "@airpath/scenario-schema";
 import { cellCenter, sampleVectorField, type SimulationResult, type SimulationWarning, type SimulationWarningSeverity } from "@airpath/solver-core";
-import { useAirPathStore, type ViewMode } from "../store";
+import { useAirPathStore, type SliceAxis, type ViewMode } from "../store";
+import { localizeWarningLabel } from "../i18n";
 
 export function Viewport3D() {
   const scenario = useAirPathStore((state) => state.scenario);
@@ -23,16 +23,24 @@ export function Viewport3D() {
   const selectObject = useAirPathStore((state) => state.selectObject);
   const clearSelection = useAirPathStore((state) => state.clearSelection);
   const viewMode = useAirPathStore((state) => state.viewMode);
+  const language = useAirPathStore((state) => state.language);
+  const editMode = useAirPathStore((state) => state.editMode);
   const showGrid = useAirPathStore((state) => state.showGrid);
   const showObjectLabels = useAirPathStore((state) => state.showObjectLabels);
   const showWarningPins = useAirPathStore((state) => state.showWarningPins);
+  const showAirflowLayer = useAirPathStore((state) => state.showAirflowLayer);
+  const showHeatmapLayer = useAirPathStore((state) => state.showHeatmapLayer);
+  const showDimensions = useAirPathStore((state) => state.showDimensions);
   const rackDraft = useAirPathStore((state) => state.rackDraft);
   const activeStep = useAirPathStore((state) => state.activeStep);
   const rightTab = useAirPathStore((state) => state.rightTab);
   const focusedPoint = useAirPathStore((state) => state.focusedPoint);
   const particleDensity = useAirPathStore((state) => state.particleDensity);
   const particleSpeed = useAirPathStore((state) => state.particleSpeed);
+  const airflowOpacity = useAirPathStore((state) => state.airflowOpacity);
   const thermalOpacity = useAirPathStore((state) => state.thermalOpacity);
+  const sliceAxis = useAirPathStore((state) => state.sliceAxis);
+  const slicePosition = useAirPathStore((state) => state.slicePosition);
   const focusWarning = useAirPathStore((state) => state.focusWarning);
   const updateRackPositionPreview = useAirPathStore((state) => state.updateRackPositionPreview);
   const commitScenarioHistory = useAirPathStore((state) => state.commitScenarioHistory);
@@ -40,8 +48,8 @@ export function Viewport3D() {
   const dragRef = useRef<RackDragState | null>(null);
   const [draggingRackId, setDraggingRackId] = useState<string | undefined>();
 
-  const showThermal = viewMode === "thermal" || viewMode === "combined" || viewMode === "slice";
-  const showAirflow = viewMode === "airflow" || viewMode === "combined";
+  const showThermal = showHeatmapLayer && (viewMode === "thermal" || viewMode === "combined" || viewMode === "slice");
+  const showAirflow = showAirflowLayer && (viewMode === "airflow" || viewMode === "combined");
   const showGhost = activeStep === "racks";
   const manualLabelsVisible = (viewMode === "solid" || viewMode === "combined") && showObjectLabels;
   const solidLabelsVisible = viewMode === "solid";
@@ -75,6 +83,7 @@ export function Viewport3D() {
   }, [commitScenarioHistory, updateRackPositionPreview]);
 
   function beginRackScreenDrag(rack: Rack, clientX: number, clientY: number) {
+    if (editMode !== "move") return;
     dragRef.current = {
       source: "screen",
       rackId: rack.id,
@@ -87,6 +96,7 @@ export function Viewport3D() {
   }
 
   function beginRackViewportDrag(rack: Rack, event: ThreeEvent<PointerEvent>) {
+    if (editMode !== "move") return;
     event.stopPropagation();
     const target = event.target as Element & { setPointerCapture?: (pointerId: number) => void };
     target.setPointerCapture?.(event.pointerId);
@@ -137,7 +147,8 @@ export function Viewport3D() {
       <ambientLight intensity={0.42} />
       <directionalLight position={[scenario.room.width * 0.4, scenario.room.height * 2, scenario.room.depth * 0.25]} intensity={1.5} castShadow />
       <Room room={scenario.room} showGrid={showGrid} />
-      {showThermal && <ThermalSlice result={result} opacity={thermalOpacity} />}
+      {showDimensions && <RoomDimensions room={scenario.room} language={language} />}
+      {showThermal && <ThermalSlice result={result} opacity={thermalOpacity} axis={sliceAxis} positionRatio={slicePosition} language={language} />}
       {scenario.racks.map((rack) => (
         <RackMesh
           key={rack.id}
@@ -146,9 +157,10 @@ export function Viewport3D() {
           dragging={draggingRackId === rack.id}
           showLabel={rackLabelsVisible || (solidLabelsVisible && selectedIds.includes(rack.id))}
           thermalTint={showThermal}
+          moveEnabled={editMode === "move"}
           inletTemp={result.rackInlets.find((inlet) => inlet.rackId === rack.id)?.inletTemperatureC}
-          onSelect={(event) => selectObject(rack.id, event.nativeEvent.shiftKey)}
-          onLabelSelect={(multi) => selectObject(rack.id, multi)}
+          onSelect={(event) => editMode !== "locked" && selectObject(rack.id, event.nativeEvent.shiftKey)}
+          onLabelSelect={(multi) => editMode !== "locked" && selectObject(rack.id, multi)}
           onLabelDragStart={(event) => beginRackScreenDrag(rack, event.clientX, event.clientY)}
           onViewportDragStart={(event) => beginRackViewportDrag(rack, event)}
           onViewportDragMove={(event) => updateRackViewportDrag(rack, event)}
@@ -162,7 +174,7 @@ export function Viewport3D() {
           object={object}
           selected={selectedIds.includes(object.id)}
           showLabel={manualLabelsVisible || (solidLabelsVisible && (activeStep === "cooling" || selectedIds.includes(object.id)))}
-          onSelect={(event) => selectObject(object.id, event.nativeEvent.shiftKey)}
+          onSelect={(event) => editMode !== "locked" && selectObject(object.id, event.nativeEvent.shiftKey)}
         />
       ))}
       {scenario.containmentObjects.map((object) => (
@@ -171,10 +183,10 @@ export function Viewport3D() {
           object={object}
           selected={selectedIds.includes(object.id)}
           showLabel={manualLabelsVisible || (solidLabelsVisible && (activeStep === "containment" || selectedIds.includes(object.id)))}
-          onSelect={(event) => selectObject(object.id, event.nativeEvent.shiftKey)}
+          onSelect={(event) => editMode !== "locked" && selectObject(object.id, event.nativeEvent.shiftKey)}
         />
       ))}
-      {showAirflow && <AirflowStreamlines result={result} density={particleDensity} speed={particleSpeed} />}
+      {showAirflow && <AirflowStreamlines result={result} density={particleDensity} speed={particleSpeed} opacity={airflowOpacity} />}
       {warningPinsVisible && warningClusters.map((cluster) => (
         <Html key={cluster.id} position={[cluster.position.x, cluster.position.y + 0.25, cluster.position.z]} center zIndexRange={[20, 0]}>
           <button
@@ -182,8 +194,8 @@ export function Viewport3D() {
             className={`warning-pin ${cluster.severity} ${cluster.warnings.length > 1 ? "cluster" : ""}`}
             onClick={() => (cluster.warnings.length > 1 ? focusWarningCluster(cluster.warnings) : focusWarning(cluster.warnings[0]))}
             data-testid={cluster.warnings.length > 1 ? "warning-cluster" : "warning-pin"}
-            title={warningClusterTitle(cluster)}
-            aria-label={warningClusterTitle(cluster)}
+            title={warningClusterTitle(cluster, language)}
+            aria-label={warningClusterTitle(cluster, language)}
           >
             {cluster.severity === "critical" ? "!" : "?"}
             <span>{cluster.warnings.length > 1 ? cluster.warnings.length : ""}</span>
@@ -230,12 +242,32 @@ function Room({ room, showGrid }: { room: { width: number; depth: number; height
   );
 }
 
+function RoomDimensions({ room, language }: { room: Scenario["room"]; language: "en" | "zh" }) {
+  const widthLabel = language === "zh" ? `寬 ${room.width} m` : `Width ${room.width} m`;
+  const depthLabel = language === "zh" ? `深 ${room.depth} m` : `Depth ${room.depth} m`;
+  const heightLabel = language === "zh" ? `高 ${room.height} m` : `Height ${room.height} m`;
+  return (
+    <group>
+      <Html position={[room.width / 2, 0.08, 0.12]} center style={{ pointerEvents: "none" }}>
+        <span className="object-label dimension-label">{widthLabel}</span>
+      </Html>
+      <Html position={[0.12, 0.08, room.depth / 2]} center style={{ pointerEvents: "none" }}>
+        <span className="object-label dimension-label">{depthLabel}</span>
+      </Html>
+      <Html position={[room.width + 0.1, room.height / 2, room.depth + 0.1]} center style={{ pointerEvents: "none" }}>
+        <span className="object-label dimension-label">{heightLabel}</span>
+      </Html>
+    </group>
+  );
+}
+
 function RackMesh({
   rack,
   selected,
   dragging,
   showLabel,
   thermalTint,
+  moveEnabled,
   inletTemp,
   onSelect,
   onLabelSelect,
@@ -249,6 +281,7 @@ function RackMesh({
   dragging: boolean;
   showLabel: boolean;
   thermalTint: boolean;
+  moveEnabled: boolean;
   inletTemp?: number;
   onSelect: (event: ThreeEvent<MouseEvent>) => void;
   onLabelSelect: (multi: boolean) => void;
@@ -272,9 +305,9 @@ function RackMesh({
     <group
       position={[rack.position.x, rack.size.height / 2, rack.position.z]}
       onClick={onSelect}
-      onPointerDown={onViewportDragStart}
-      onPointerMove={onViewportDragMove}
-      onPointerUp={onViewportDragEnd}
+      onPointerDown={moveEnabled ? onViewportDragStart : undefined}
+      onPointerMove={moveEnabled ? onViewportDragMove : undefined}
+      onPointerUp={moveEnabled ? onViewportDragEnd : undefined}
     >
       <mesh castShadow receiveShadow>
         <boxGeometry args={[rack.size.width, rack.size.height, rack.size.depth]} />
@@ -304,7 +337,7 @@ function RackMesh({
             }}
             onPointerDown={(event) => {
               event.stopPropagation();
-              onLabelDragStart(event);
+              if (moveEnabled) onLabelDragStart(event);
             }}
           >
             {rack.name.replace("Rack Array ", "R")}
@@ -401,34 +434,40 @@ function ContainmentMesh({
   );
 }
 
-function ThermalSlice({ result, opacity }: { result: SimulationResult; opacity: number }) {
-  const y = Math.max(0, Math.floor(result.grid.ny * 0.32));
+function ThermalSlice({
+  result,
+  opacity,
+  axis,
+  positionRatio,
+  language
+}: {
+  result: SimulationResult;
+  opacity: number;
+  axis: SliceAxis;
+  positionRatio: number;
+  language: "en" | "zh";
+}) {
+  const slice = useMemo(() => buildThermalSlice(result, axis, positionRatio), [axis, positionRatio, result]);
   const texture = useMemo(() => {
-    const data = new Uint8Array(result.grid.nx * result.grid.nz);
+    const data = new Uint8Array(slice.widthCells * slice.heightCells);
     const low = result.settings.ambientTemperatureC - 3;
     const high = result.settings.criticalTemperatureC + 8;
-    for (let z = 0; z < result.grid.nz; z += 1) {
-      for (let x = 0; x < result.grid.nx; x += 1) {
-        const index = z * result.grid.nx * result.grid.ny + y * result.grid.nx + x;
-        const temp = result.temperatureFieldC[index] ?? result.settings.ambientTemperatureC;
-        data[z * result.grid.nx + x] = Math.round(clamp((temp - low) / (high - low), 0, 1) * 255);
-      }
+    for (let i = 0; i < slice.values.length; i += 1) {
+      data[i] = Math.round(clamp((slice.values[i] - low) / (high - low), 0, 1) * 255);
     }
-    const map = new THREE.DataTexture(data, result.grid.nx, result.grid.nz, THREE.RedFormat, THREE.UnsignedByteType);
+    const map = new THREE.DataTexture(data, slice.widthCells, slice.heightCells, THREE.RedFormat, THREE.UnsignedByteType);
     map.needsUpdate = true;
     map.magFilter = THREE.NearestFilter;
     map.minFilter = THREE.NearestFilter;
     map.wrapS = THREE.ClampToEdgeWrapping;
     map.wrapT = THREE.ClampToEdgeWrapping;
     return map;
-  }, [result, y]);
-  const width = result.grid.nx * result.grid.cellSizeM;
-  const depth = result.grid.nz * result.grid.cellSizeM;
+  }, [result.settings.ambientTemperatureC, result.settings.criticalTemperatureC, slice.heightCells, slice.values, slice.widthCells]);
 
   return (
     <group>
-      <mesh position={[width / 2, 0.036, depth / 2]} rotation={[-Math.PI / 2, 0, 0]} data-testid="shader-heatmap">
-        <planeGeometry args={[width, depth, 1, 1]} />
+      <mesh position={slice.position} rotation={slice.rotation} data-testid="shader-heatmap">
+        <planeGeometry args={[slice.widthM, slice.heightM, 1, 1]} />
         <shaderMaterial
           transparent
           depthWrite={false}
@@ -439,16 +478,77 @@ function ThermalSlice({ result, opacity }: { result: SimulationResult; opacity: 
           vertexShader={thermalVertexShader}
           fragmentShader={thermalFragmentShader}
         />
+        <Edges color="#E5EDF5" />
       </mesh>
+      <Html position={slice.labelPosition} center transform={false} style={{ pointerEvents: "none" }}>
+        <div className="slice-label" data-testid="slice-plane">
+          <strong>{axis.toUpperCase()}</strong>
+          <span>{language === "zh" ? "切片" : "slice"} @ {slice.metricM.toFixed(2)} m</span>
+        </div>
+      </Html>
       <Html position={[0.7, 0.15, 0.7]} transform={false} style={{ pointerEvents: "none" }}>
         <div className="heat-legend" data-testid="heat-legend">
-          <strong>Thermal slice C</strong>
+          <strong>{language === "zh" ? "熱場切片 C" : "Thermal slice C"}</strong>
           <span className="legend-bar" />
-          <small className="legend-readable">Cold - Neutral - Warm - Hot - Critical</small>
+          <small className="legend-readable">{language === "zh" ? "冷 - 中性 - 溫 - 熱 - 嚴重" : "Cold - Neutral - Warm - Hot - Critical"}</small>
         </div>
       </Html>
     </group>
   );
+}
+
+function buildThermalSlice(result: SimulationResult, axis: SliceAxis, positionRatio: number) {
+  const { nx, ny, nz, cellSizeM } = result.grid;
+  const sample = (x: number, y: number, z: number): number => {
+    const index = z * nx * ny + y * nx + x;
+    return result.temperatureFieldC[index] ?? result.settings.ambientTemperatureC;
+  };
+  if (axis === "xy") {
+    const z = Math.max(0, Math.min(nz - 1, Math.round(positionRatio * (nz - 1))));
+    const values: number[] = [];
+    for (let y = 0; y < ny; y += 1) for (let x = 0; x < nx; x += 1) values.push(sample(x, y, z));
+    return {
+      values,
+      widthCells: nx,
+      heightCells: ny,
+      widthM: nx * cellSizeM,
+      heightM: ny * cellSizeM,
+      metricM: z * cellSizeM,
+      position: [nx * cellSizeM / 2, ny * cellSizeM / 2, z * cellSizeM] as [number, number, number],
+      rotation: [0, 0, 0] as [number, number, number],
+      labelPosition: [nx * cellSizeM / 2, ny * cellSizeM + 0.24, z * cellSizeM] as [number, number, number]
+    };
+  }
+  if (axis === "yz") {
+    const x = Math.max(0, Math.min(nx - 1, Math.round(positionRatio * (nx - 1))));
+    const values: number[] = [];
+    for (let y = 0; y < ny; y += 1) for (let z = 0; z < nz; z += 1) values.push(sample(x, y, z));
+    return {
+      values,
+      widthCells: nz,
+      heightCells: ny,
+      widthM: nz * cellSizeM,
+      heightM: ny * cellSizeM,
+      metricM: x * cellSizeM,
+      position: [x * cellSizeM, ny * cellSizeM / 2, nz * cellSizeM / 2] as [number, number, number],
+      rotation: [0, Math.PI / 2, 0] as [number, number, number],
+      labelPosition: [x * cellSizeM, ny * cellSizeM + 0.24, nz * cellSizeM / 2] as [number, number, number]
+    };
+  }
+  const y = Math.max(0, Math.min(ny - 1, Math.round(positionRatio * (ny - 1))));
+  const values: number[] = [];
+  for (let z = 0; z < nz; z += 1) for (let x = 0; x < nx; x += 1) values.push(sample(x, y, z));
+  return {
+    values,
+    widthCells: nx,
+    heightCells: nz,
+    widthM: nx * cellSizeM,
+    heightM: nz * cellSizeM,
+    metricM: y * cellSizeM,
+    position: [nx * cellSizeM / 2, y * cellSizeM, nz * cellSizeM / 2] as [number, number, number],
+    rotation: [-Math.PI / 2, 0, 0] as [number, number, number],
+    labelPosition: [nx * cellSizeM / 2, y * cellSizeM + 0.28, nz * cellSizeM / 2] as [number, number, number]
+  };
 }
 
 const thermalVertexShader = `
@@ -485,7 +585,7 @@ const thermalFragmentShader = `
   }
 `;
 
-function AirflowStreamlines({ result, density, speed }: { result: SimulationResult; density: number; speed: number }) {
+function AirflowStreamlines({ result, density, speed, opacity }: { result: SimulationResult; density: number; speed: number; opacity: number }) {
   const paths = useMemo(() => buildStreamlines(result, density), [result, density]);
   return (
     <group>
@@ -495,32 +595,28 @@ function AirflowStreamlines({ result, density, speed }: { result: SimulationResu
           points={path.map((point) => [point.x, point.y, point.z])}
           color={pathColor(path)}
           transparent
-          opacity={0.36}
-          lineWidth={1.15}
+          opacity={opacity * 0.38}
+          lineWidth={1.05}
         />
       ))}
-      {paths.slice(0, Math.min(paths.length, Math.ceil(density / 2))).map((path, index) => (
-        <FlowParticle key={`particle-${index}`} path={path} speed={speed} offset={index / Math.max(paths.length, 1)} />
+      {paths.slice(0, Math.min(paths.length, 80)).map((path, index) => (
+        <FlowTrail key={`trail-${index}`} path={path} speed={speed} opacity={opacity} offset={index / Math.max(paths.length, 1)} />
       ))}
     </group>
   );
 }
 
-function FlowParticle({ path, speed, offset }: { path: Vector3[]; speed: number; offset: number }) {
-  const ref = useRef<THREE.Mesh>(null);
+function FlowTrail({ path, speed, opacity, offset }: { path: Vector3[]; speed: number; opacity: number; offset: number }) {
+  const [segment, setSegment] = useState<Vector3[]>(() => path.slice(0, Math.min(path.length, 8)));
   useFrame(({ clock }) => {
-    if (!ref.current || path.length === 0) return;
-    const t = (clock.elapsedTime * speed * 0.35 + offset) % 1;
-    const point = path[Math.floor(t * (path.length - 1))] ?? path[0];
-    ref.current.position.set(point.x, point.y, point.z);
+    if (path.length < 3) return;
+    const span = Math.max(5, Math.min(14, Math.floor(path.length * 0.22)));
+    const maxHead = Math.max(span + 1, path.length - 1);
+    const head = Math.min(path.length - 1, span + Math.floor(((clock.elapsedTime * speed * 0.28 + offset) % 1) * (maxHead - span)));
+    setSegment(path.slice(Math.max(0, head - span), head + 1));
   });
-  if (path.length < 2) return null;
-  return (
-    <mesh ref={ref}>
-      <sphereGeometry args={[0.035, 10, 10]} />
-      <meshBasicMaterial color={pathColor(path)} transparent opacity={0.74} />
-    </mesh>
-  );
+  if (segment.length < 2) return null;
+  return <Line points={segment.map((point) => [point.x, point.y, point.z])} color={pathColor(path)} transparent opacity={opacity} lineWidth={2.2} />;
 }
 
 function CameraFocus({ point, room, viewMode }: { point?: Vector3; room: Scenario["room"]; viewMode: ViewMode }) {
@@ -550,12 +646,43 @@ function buildStreamlines(result: SimulationResult, density: number): Vector3[][
   const cellCount = result.vectorField.length;
   const step = Math.max(1, Math.floor(cellCount / density));
   for (let index = 0; index < cellCount && paths.length < density; index += step) {
-    const start = cellCenter(index, result.grid);
+    const start = jitterPoint(cellCenter(index, result.grid), index, result.grid.cellSizeM, result);
     if (start.y < 0.2 || start.y > result.grid.ny * result.grid.cellSizeM - 0.2) continue;
-    const path = tracePath(start, result);
+    const path = smoothPath(tracePath(start, result));
     if (path.length > 2) paths.push(path);
   }
   return paths;
+}
+
+function jitterPoint(point: Vector3, index: number, amount: number, result: SimulationResult): Vector3 {
+  const maxX = result.grid.nx * result.grid.cellSizeM;
+  const maxY = result.grid.ny * result.grid.cellSizeM;
+  const maxZ = result.grid.nz * result.grid.cellSizeM;
+  const jx = pseudoRandom(index * 17 + 3) - 0.5;
+  const jy = pseudoRandom(index * 19 + 11) - 0.5;
+  const jz = pseudoRandom(index * 23 + 7) - 0.5;
+  return {
+    x: clamp(point.x + jx * amount * 0.72, 0.05, maxX - 0.05),
+    y: clamp(point.y + jy * amount * 0.42, 0.08, maxY - 0.08),
+    z: clamp(point.z + jz * amount * 0.72, 0.05, maxZ - 0.05)
+  };
+}
+
+function pseudoRandom(seed: number): number {
+  const x = Math.sin(seed * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+function smoothPath(path: Vector3[]): Vector3[] {
+  if (path.length < 3) return path;
+  const curve = new THREE.CatmullRomCurve3(
+    path.map((point) => new THREE.Vector3(point.x, point.y, point.z)),
+    false,
+    "catmullrom",
+    0.36
+  );
+  const pointCount = Math.min(72, Math.max(24, path.length * 5));
+  return curve.getPoints(pointCount).map((point) => ({ x: point.x, y: point.y, z: point.z }));
 }
 
 interface WarningCluster {
@@ -566,14 +693,15 @@ interface WarningCluster {
   position: Vector3;
 }
 
-function warningClusterTitle(cluster: WarningCluster): string {
+function warningClusterTitle(cluster: WarningCluster, language: "en" | "zh"): string {
   const severity = cluster.severity === "critical" ? "Critical" : "Warning";
   const count = cluster.warnings.length;
+  const label = localizeWarningLabel(language, cluster.label);
   const details = cluster.warnings
     .slice(0, 3)
     .map((warning) => warning.message)
     .join(" | ");
-  return `${severity}: ${count} ${cluster.label}${count === 1 ? "" : " warnings"}${details ? ` - ${details}` : ""}`;
+  return `${language === "zh" ? (cluster.severity === "critical" ? "嚴重" : "警示") : severity}: ${count} ${label}${count === 1 ? "" : language === "zh" ? "項" : " warnings"}${details ? ` - ${details}` : ""}`;
 }
 
 function clusterWarnings(warnings: SimulationWarning[]): WarningCluster[] {
@@ -617,22 +745,39 @@ function maxSeverity(severities: SimulationWarningSeverity[]): SimulationWarning
 function tracePath(start: Vector3, result: SimulationResult): Vector3[] {
   const path = [start];
   let current = start;
+  let direction: Vector3 | undefined;
   const maxX = result.grid.nx * result.grid.cellSizeM;
   const maxY = result.grid.ny * result.grid.cellSizeM;
   const maxZ = result.grid.nz * result.grid.cellSizeM;
-  for (let i = 0; i < 12; i += 1) {
+  for (let i = 0; i < 18; i += 1) {
     const vector = sampleVectorField(result.vectorField, result.grid, current);
     const magnitude = Math.hypot(vector.x, vector.y, vector.z);
     if (magnitude < 0.025) break;
-    const step = result.grid.cellSizeM * 0.62;
+    const sampled = { x: vector.x / magnitude, y: vector.y / magnitude, z: vector.z / magnitude };
+    direction = direction ? normalizeVector(lerpVector(direction, sampled, 0.48)) : sampled;
+    const step = result.grid.cellSizeM * 0.42;
     current = {
-      x: clamp(current.x + (vector.x / magnitude) * step, 0.05, maxX - 0.05),
-      y: clamp(current.y + (vector.y / magnitude) * step, 0.05, maxY - 0.05),
-      z: clamp(current.z + (vector.z / magnitude) * step, 0.05, maxZ - 0.05)
+      x: clamp(current.x + direction.x * step, 0.05, maxX - 0.05),
+      y: clamp(current.y + direction.y * step, 0.05, maxY - 0.05),
+      z: clamp(current.z + direction.z * step, 0.05, maxZ - 0.05)
     };
     path.push(current);
   }
   return path;
+}
+
+function lerpVector(a: Vector3, b: Vector3, amount: number): Vector3 {
+  return {
+    x: a.x + (b.x - a.x) * amount,
+    y: a.y + (b.y - a.y) * amount,
+    z: a.z + (b.z - a.z) * amount
+  };
+}
+
+function normalizeVector(vector: Vector3): Vector3 {
+  const magnitude = Math.hypot(vector.x, vector.y, vector.z);
+  if (magnitude < 0.0001) return { x: 0, y: 0, z: 0 };
+  return { x: vector.x / magnitude, y: vector.y / magnitude, z: vector.z / magnitude };
 }
 
 function pathColor(path: Vector3[]): string {

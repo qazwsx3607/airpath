@@ -11,13 +11,29 @@ describe("report engine", () => {
     const html = renderHtmlReport(data);
     expect(html).toContain("Executive Summary");
     expect(html).toContain("Rack Heat Load Table");
-    expect(html).toContain("Cooling Setup");
-    expect(html).toContain("Containment Setup");
-    expect(html).toContain("Temperature Review");
-    expect(html).toContain("Airflow Review");
-    expect(html).toContain("Model Assumptions");
+    expect(html).toContain("Project Metadata");
+    expect(html).toContain("Methodology");
+    expect(html).toContain("Cooling Configuration");
+    expect(html).toContain("Containment Configuration");
+    expect(html).toContain("Thermal Results");
+    expect(html).toContain("Airflow Results");
+    expect(html).toContain("Risk Register");
+    expect(html).toContain("Assumptions and Limitations");
     expect(html).toContain("not a certified CFD solver");
     expect(html).toContain("@media print");
+  });
+
+  it("localizes professional report structure to Chinese", () => {
+    const scenario = createDefaultScenario("small");
+    scenario.reportSettings.language = "zh";
+    scenario.reportSettings.reportTitle = "預售氣流與熱風險檢視報告";
+    scenario.reportSettings.clientName = "客戶 A";
+    const html = renderHtmlReport(createReportData(scenario, solveScenario(scenario)));
+    expect(html).toContain('lang="zh-Hant"');
+    expect(html).toContain("專案資料");
+    expect(html).toContain("熱場結果");
+    expect(html).toContain("氣流結果");
+    expect(html).toContain("不代表認證 CFD 精度");
   });
 
   it("exports simulation result JSON", () => {

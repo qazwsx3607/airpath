@@ -32,6 +32,7 @@ test("AirPath GUI self-acceptance flow", async ({ page }) => {
   await page.getByTestId("selected-rack-heat").press("Tab");
   await page.getByText("Move and resize").click();
   await page.getByRole("button", { name: "X+" }).click();
+  await page.getByTestId("edit-mode-move").click();
   const rackLabelBox = await page.getByTestId("rack-label").first().boundingBox();
   expect(rackLabelBox).toBeTruthy();
   await page.mouse.move(rackLabelBox!.x + rackLabelBox!.width / 2, rackLabelBox!.y + rackLabelBox!.height / 2);
@@ -39,6 +40,7 @@ test("AirPath GUI self-acceptance flow", async ({ page }) => {
   await page.mouse.move(rackLabelBox!.x + rackLabelBox!.width / 2 + 40, rackLabelBox!.y + rackLabelBox!.height / 2 + 16, { steps: 6 });
   await page.mouse.up();
   await expect(page.getByText(/Dragged .* floor plane/)).toBeVisible();
+  await page.getByTestId("edit-mode-select").click();
   await page.getByTestId("undo-button").click();
   await expect(page.getByText("Undo restored the previous scenario state.")).toBeVisible();
   await page.getByTestId("redo-button").click();
