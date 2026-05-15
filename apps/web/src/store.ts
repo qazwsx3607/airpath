@@ -11,15 +11,17 @@ import {
   type RoomTemplateKey,
   type Scenario,
   type Size3,
+  type ThermalTopology,
   type Vector3,
+  analyzeThermalTopology,
   cloneScenario,
   createContainmentObject,
   createCoolingObject,
   createDefaultScenario,
   defaultRackArrayInput,
-  detectAisles,
   deserializeScenario,
   generateRackArray,
+  orientationFromDirection,
   oppositeRackOrientation,
   orientationVector,
   roomTemplates,
@@ -78,7 +80,11 @@ interface AirPathState {
   showWarningPins: boolean;
   showAirflowLayer: boolean;
   showHeatmapLayer: boolean;
+  showThermalZones: boolean;
+  showZoneLabels: boolean;
+  showAirflowBoundaries: boolean;
   showDimensions: boolean;
+  thermalZoneOpacity: number;
   particleDensity: number;
   particleSpeed: number;
   airflowOpacity: number;
@@ -94,6 +100,7 @@ interface AirPathState {
   sliceAxis: SliceAxis;
   slicePosition: number;
   detectedAisles: DetectedAisle[];
+  thermalTopology: ThermalTopology;
   reportScreenshots: ReportScreenshots;
   reportHtml: string;
   scenarioB?: Scenario;
@@ -115,7 +122,11 @@ interface AirPathState {
   toggleWarningPins: () => void;
   toggleAirflowLayer: () => void;
   toggleHeatmapLayer: () => void;
+  toggleThermalZones: () => void;
+  toggleZoneLabels: () => void;
+  toggleAirflowBoundaries: () => void;
   toggleDimensions: () => void;
+  setThermalZoneOpacity: (value: number) => void;
   setParticleDensity: (value: number) => void;
   setParticleSpeed: (value: number) => void;
   setAirflowOpacity: (value: number) => void;
@@ -146,7 +157,10 @@ interface AirPathState {
   ) => void;
   resizeSelectedRacks: (size: Partial<Size3>) => void;
   moveSelectedRacks: (dx: number, dz: number) => void;
+  moveSelectedObjects: (dx: number, dz: number) => void;
+  rotateSelectedObjects: (degrees: number) => void;
   mirrorSelectedRacks: (axis: "x" | "z", flipOrientation?: boolean) => void;
+  mirrorSelectedObjects: (axis: "x" | "z", flipOrientation?: boolean) => void;
   createBackToBackHotAisle: () => void;
   createFaceToFaceColdAisle: () => void;
   convertSelectedRacksToInRowCooling: () => void;
@@ -173,6 +187,7 @@ type AirPathSet = (partial: Partial<AirPathState>) => void;
 
 const initialScenario = createDefaultScenario("medium");
 const initialResult = solveScenario(initialScenario, "formal");
+const initialTopology = analyzeThermalTopology(initialScenario);
 const historyLimit = 40;
 
 export const useAirPathStore = create<AirPathState>((set, get) => ({
@@ -201,7 +216,11 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
   showWarningPins: false,
   showAirflowLayer: true,
   showHeatmapLayer: true,
+  showThermalZones: true,
+  showZoneLabels: true,
+  showAirflowBoundaries: true,
   showDimensions: false,
+  thermalZoneOpacity: 0.34,
   particleDensity: 34,
   particleSpeed: 1,
   airflowOpacity: 0.62,
@@ -216,7 +235,8 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
   colorbarPosition: "bottom",
   sliceAxis: "xz",
   slicePosition: 0.32,
-  detectedAisles: detectAisles(initialScenario),
+  detectedAisles: initialTopology.detectedAisles,
+  thermalTopology: initialTopology,
   reportScreenshots: {},
   reportHtml: renderHtmlReport(createReportData(initialScenario, initialResult)),
   statusMessage: "Ready for a 5-minute airflow review.",
@@ -244,7 +264,11 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
   toggleWarningPins: () => set((state) => ({ showWarningPins: !state.showWarningPins })),
   toggleAirflowLayer: () => set((state) => ({ showAirflowLayer: !state.showAirflowLayer })),
   toggleHeatmapLayer: () => set((state) => ({ showHeatmapLayer: !state.showHeatmapLayer })),
+  toggleThermalZones: () => set((state) => ({ showThermalZones: !state.showThermalZones })),
+  toggleZoneLabels: () => set((state) => ({ showZoneLabels: !state.showZoneLabels })),
+  toggleAirflowBoundaries: () => set((state) => ({ showAirflowBoundaries: !state.showAirflowBoundaries })),
   toggleDimensions: () => set((state) => ({ showDimensions: !state.showDimensions })),
+  setThermalZoneOpacity: (thermalZoneOpacity) => set({ thermalZoneOpacity }),
   setParticleDensity: (particleDensity) => set({ particleDensity }),
   setParticleSpeed: (particleSpeed) => set({ particleSpeed }),
   setAirflowOpacity: (airflowOpacity) => set({ airflowOpacity }),
@@ -280,7 +304,7 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
       result,
       runStatus: "dirty",
       resultsStale: true,
-      detectedAisles: detectAisles(previous),
+      ...topologyPatch(previous),
       historyPast,
       historyFuture: [state.scenario, ...state.historyFuture].slice(0, historyLimit),
       selectedIds: [],
@@ -301,7 +325,7 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
       result,
       runStatus: "dirty",
       resultsStale: true,
-      detectedAisles: detectAisles(next),
+      ...topologyPatch(next),
       historyPast: [...state.historyPast, state.scenario].slice(-historyLimit),
       historyFuture: state.historyFuture.slice(1),
       selectedIds: [],
@@ -414,23 +438,73 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
     setWithPreview(set, { ...state.scenario, racks }, { ...historyPatch(state), statusMessage: `Resized ${selected.size} selected rack(s).` });
   },
   moveSelectedRacks: (dx, dz) => {
+    get().moveSelectedObjects(dx, dz);
+  },
+  moveSelectedObjects: (dx, dz) => {
     const state = get();
     const selected = new Set(state.selectedIds);
     if (selected.size === 0) return;
     const racks = state.scenario.racks.map((rack) =>
       selected.has(rack.id) ? { ...rack, position: clampRackPosition({ ...rack.position, x: rack.position.x + dx, z: rack.position.z + dz }, rack, state.scenario.room) } : rack
     );
-    setWithPreview(set, { ...state.scenario, racks }, { ...historyPatch(state), statusMessage: `Moved ${selected.size} selected rack(s).` });
+    const coolingObjects = state.scenario.coolingObjects.map((object) =>
+      selected.has(object.id)
+        ? { ...object, position: clampObjectPosition({ ...object.position, x: object.position.x + dx, z: object.position.z + dz }, object.size, state.scenario.room) }
+        : object
+    );
+    const containmentObjects = state.scenario.containmentObjects.map((object) =>
+      selected.has(object.id)
+        ? { ...object, position: clampObjectPosition({ ...object.position, x: object.position.x + dx, z: object.position.z + dz }, object.size, state.scenario.room) }
+        : object
+    );
+    const movedCount = countTransformableSelection(state.scenario, selected);
+    if (movedCount === 0) return;
+    setWithPreview(set, { ...state.scenario, racks, coolingObjects, containmentObjects }, { ...historyPatch(state), statusMessage: `Moved ${movedCount} selected object(s).` });
+  },
+  rotateSelectedObjects: (degrees) => {
+    const state = get();
+    const selected = new Set(state.selectedIds);
+    if (selected.size === 0) return;
+    const quarterTurns = Math.round(degrees / 90);
+    const racks = state.scenario.racks.map((rack) =>
+      selected.has(rack.id) ? { ...rack, orientation: rotateRackOrientation(rack.orientation, quarterTurns) } : rack
+    );
+    const coolingObjects = state.scenario.coolingObjects.map((object) => {
+      if (!selected.has(object.id)) return object;
+      const orientation = rotateRackOrientation(object.orientation ?? orientationFromDirection(object.direction), quarterTurns);
+      const direction = rotateVectorY(object.direction, quarterTurns);
+      return {
+        ...object,
+        orientation,
+        direction,
+        ...(Math.abs(quarterTurns) % 2 === 1 && rotatesFootprint(object.type) ? { size: { ...object.size, width: object.size.depth, depth: object.size.width } } : {})
+      };
+    });
+    const containmentObjects = state.scenario.containmentObjects.map((object) =>
+      selected.has(object.id) && Math.abs(quarterTurns) % 2 === 1 ? { ...object, size: { ...object.size, width: object.size.depth, depth: object.size.width } } : object
+    );
+    const rotatedCount = countTransformableSelection(state.scenario, selected);
+    if (rotatedCount === 0) return;
+    setWithPreview(set, { ...state.scenario, racks, coolingObjects, containmentObjects }, {
+      ...historyPatch(state),
+      statusMessage: `Rotated ${rotatedCount} selected object(s) by ${quarterTurns * 90} degrees.`
+    });
   },
   mirrorSelectedRacks: (axis, flipOrientation = true) => {
+    get().mirrorSelectedObjects(axis, flipOrientation);
+  },
+  mirrorSelectedObjects: (axis, flipOrientation = true) => {
     const state = get();
-    const selectedRacks = state.scenario.racks.filter((rack) => state.selectedIds.includes(rack.id));
-    if (selectedRacks.length === 0) return;
-    const bounds = rackGroupBounds(selectedRacks);
+    const selected = new Set(state.selectedIds);
+    const selectedObjects = selectedTransformables(state.scenario, selected);
+    if (selectedObjects.length === 0) return;
+    const bounds = transformableGroupBounds(selectedObjects);
     const aisleWidth = Math.max(1.2, state.scenario.rackArrays[0]?.aisleWidthM ?? 1.2);
     const mirrorLine = axis === "z" ? bounds.maxZ + aisleWidth / 2 : bounds.maxX + aisleWidth / 2;
     const existingIds = new Set(state.scenario.racks.map((rack) => rack.id));
-    const clones = selectedRacks.map((rack, index) => {
+    const existingCoolingIds = new Set(state.scenario.coolingObjects.map((object) => object.id));
+    const existingContainmentIds = new Set(state.scenario.containmentObjects.map((object) => object.id));
+    const rackClones = state.scenario.racks.filter((rack) => selected.has(rack.id)).map((rack, index) => {
       const mirroredPosition =
         axis === "z"
           ? { ...rack.position, z: mirrorLine * 2 - rack.position.z }
@@ -446,13 +520,46 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
         orientation: flipOrientation ? oppositeRackOrientation(rack.orientation) : rack.orientation
       };
     });
-    const scenario = { ...state.scenario, racks: [...state.scenario.racks, ...clones] };
+    const coolingClones = state.scenario.coolingObjects.filter((object) => selected.has(object.id)).map((object, index) => {
+      const mirroredPosition = mirrorPosition(object.position, axis, mirrorLine);
+      const nextId = uniqueObjectId(`${object.id}-mirror`, existingCoolingIds, index + 1);
+      existingCoolingIds.add(nextId);
+      const orientation = object.orientation ?? orientationFromDirection(object.direction);
+      const mirroredOrientation = flipOrientation ? mirrorOrientation(orientation, axis) : orientation;
+      return {
+        ...object,
+        id: nextId,
+        name: `${object.name} mirror`,
+        rowId: undefined,
+        slotIndex: undefined,
+        position: clampObjectPosition(mirroredPosition, object.size, state.scenario.room),
+        orientation: mirroredOrientation,
+        direction: flipOrientation ? orientationVector(mirroredOrientation) : mirrorDirection(object.direction, axis)
+      };
+    });
+    const containmentClones = state.scenario.containmentObjects.filter((object) => selected.has(object.id)).map((object, index) => {
+      const nextId = uniqueObjectId(`${object.id}-mirror`, existingContainmentIds, index + 1);
+      existingContainmentIds.add(nextId);
+      return {
+        ...object,
+        id: nextId,
+        name: `${object.name} mirror`,
+        position: clampObjectPosition(mirrorPosition(object.position, axis, mirrorLine), object.size, state.scenario.room),
+        generatedFromRackIds: []
+      };
+    });
+    const scenario = {
+      ...state.scenario,
+      racks: [...state.scenario.racks, ...rackClones],
+      coolingObjects: [...state.scenario.coolingObjects, ...coolingClones],
+      containmentObjects: [...state.scenario.containmentObjects, ...containmentClones]
+    };
+    const clonedIds = [...rackClones.map((rack) => rack.id), ...coolingClones.map((object) => object.id), ...containmentClones.map((object) => object.id)];
     setWithPreview(set, scenario, {
       ...historyPatch(state),
-      selectedIds: clones.map((rack) => rack.id),
+      selectedIds: clonedIds,
       workspaceMode: "plan",
-      detectedAisles: detectAisles(scenario),
-      statusMessage: `Mirrored ${selectedRacks.length} rack(s) across ${axis.toUpperCase()} axis.`
+      statusMessage: `Mirrored ${clonedIds.length} selected object(s) across ${axis.toUpperCase()} axis.`
     });
   },
   createBackToBackHotAisle: () => {
@@ -479,12 +586,20 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
     const coolingObjects = [...state.scenario.coolingObjects];
     const converted = selectedRacks.map((rack, index) => {
       const object = createCoolingObject("in-row-cooler", coolingObjects.filter((item) => item.type === "in-row-cooler").length + index + 1, state.scenario.room);
+      const rowIdentity = rackRowIdentity(rack, index);
       return {
         ...object,
         id: `in-row-from-${rack.id}`,
         name: `${rack.name} in-row cooler`,
         position: { ...rack.position },
         size: { ...rack.size },
+        orientation: rack.orientation,
+        rowId: rowIdentity.rowId,
+        slotIndex: rowIdentity.slotIndex,
+        rowModuleType: "in-row-cooling" as const,
+        intakeSide: "rear" as const,
+        supplySide: "front" as const,
+        coolingModeSemantic: "hot-side-return-cold-side-supply" as const,
         direction: orientationDirection(rack.orientation),
         airflowLps: Math.max(900, rack.heatLoadKw * 90),
         coolingCapacityKw: Math.max(18, rack.heatLoadKw * 1.2)
@@ -498,22 +613,25 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
     setWithPreview(set, scenario, {
       ...historyPatch(state),
       selectedIds: converted.map((object) => object.id),
-      detectedAisles: detectAisles(scenario),
+      ...topologyPatch(scenario),
       statusMessage: `Converted ${converted.length} selected rack(s) to in-row cooling.`
     });
   },
   detectAisleZones: () => {
     const state = get();
-    const detectedAisles = detectAisles(state.scenario);
+    const thermalTopology = analyzeThermalTopology(state.scenario);
+    const detectedAisles = thermalTopology.detectedAisles;
     set({
       detectedAisles,
+      thermalTopology,
       workspaceMode: "plan",
       statusMessage: detectedAisles.length ? `Detected ${detectedAisles.length} hot/cold aisle zone(s).` : "No clear hot/cold aisle pair detected."
     });
   },
   addContainmentFromDetectedAisle: (type) => {
     const state = get();
-    const aisle = state.detectedAisles.find((candidate) => candidate.type === type) ?? detectAisles(state.scenario).find((candidate) => candidate.type === type);
+    const topology = state.thermalTopology ?? analyzeThermalTopology(state.scenario);
+    const aisle = state.detectedAisles.find((candidate) => candidate.type === type) ?? topology.detectedAisles.find((candidate) => candidate.type === type);
     if (!aisle) {
       set({ statusMessage: `No ${type} aisle suggestion is available. Run Detect Aisles first.` });
       return;
@@ -613,6 +731,7 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
         resultsStale: false,
         reportScreenshots: {},
         reportHtml: renderHtmlReport(createReportData(scenario, result)),
+        ...topologyPatch(scenario),
         rightTab: "results",
         statusMessage: `Formal simulation #${runId} complete in ${result.elapsedMs.toFixed(1)} ms.`
       });
@@ -650,7 +769,7 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
       lastRunAt: new Date().toISOString(),
       lastRunElapsedMs: result.elapsedMs,
       resultsStale: false,
-      detectedAisles: detectAisles(scenario),
+      ...topologyPatch(scenario),
       rackDraft: defaultRackArrayInput(scenario.room),
       selectedIds: [],
       activeStep: "review",
@@ -675,7 +794,7 @@ export const useAirPathStore = create<AirPathState>((set, get) => ({
       lastRunAt: new Date().toISOString(),
       lastRunElapsedMs: result.elapsedMs,
       resultsStale: false,
-      detectedAisles: detectAisles(scenario),
+      ...topologyPatch(scenario),
       rackDraft: defaultRackArrayInput(scenario.room),
       selectedIds: [],
       language: scenario.reportSettings.language,
@@ -750,7 +869,7 @@ function setWithPreview(
     language: scenario.reportSettings.language,
     runStatus: "dirty",
     resultsStale: true,
-    detectedAisles: detectAisles(scenario),
+    ...topologyPatch(scenario),
     reportScreenshots: {},
     reportHtml: renderHtmlReport(createReportData(scenario, result)),
     ...patch
@@ -761,6 +880,14 @@ function historyPatch(state: AirPathState): Pick<AirPathState, "historyPast" | "
   return {
     historyPast: [...state.historyPast, state.scenario].slice(-historyLimit),
     historyFuture: []
+  };
+}
+
+function topologyPatch(scenario: Scenario): Pick<AirPathState, "detectedAisles" | "thermalTopology"> {
+  const thermalTopology = analyzeThermalTopology(scenario);
+  return {
+    detectedAisles: thermalTopology.detectedAisles,
+    thermalTopology
   };
 }
 
@@ -792,6 +919,75 @@ function clampRackPosition(position: Vector3, rack: Rack, room: Scenario["room"]
   };
 }
 
+function clampObjectPosition(position: Vector3, size: Size3, room: Scenario["room"]): Vector3 {
+  return {
+    ...position,
+    x: snap(clamp(position.x, size.width / 2, room.width - size.width / 2), 0.05),
+    z: snap(clamp(position.z, size.depth / 2, room.depth - size.depth / 2), 0.05)
+  };
+}
+
+type TransformableSelection = {
+  id: string;
+  position: Vector3;
+  size: Size3;
+};
+
+function selectedTransformables(scenario: Scenario, selected: Set<string>): TransformableSelection[] {
+  return [
+    ...scenario.racks.filter((rack) => selected.has(rack.id)),
+    ...scenario.coolingObjects.filter((object) => selected.has(object.id)),
+    ...scenario.containmentObjects.filter((object) => selected.has(object.id))
+  ].map((object) => ({ id: object.id, position: object.position, size: object.size }));
+}
+
+function countTransformableSelection(scenario: Scenario, selected: Set<string>): number {
+  return selectedTransformables(scenario, selected).length;
+}
+
+function transformableGroupBounds(objects: TransformableSelection[]): { minX: number; maxX: number; minZ: number; maxZ: number } {
+  return objects.reduce(
+    (bounds, object) => ({
+      minX: Math.min(bounds.minX, object.position.x - object.size.width / 2),
+      maxX: Math.max(bounds.maxX, object.position.x + object.size.width / 2),
+      minZ: Math.min(bounds.minZ, object.position.z - object.size.depth / 2),
+      maxZ: Math.max(bounds.maxZ, object.position.z + object.size.depth / 2)
+    }),
+    { minX: Number.POSITIVE_INFINITY, maxX: Number.NEGATIVE_INFINITY, minZ: Number.POSITIVE_INFINITY, maxZ: Number.NEGATIVE_INFINITY }
+  );
+}
+
+function rotateRackOrientation(orientation: RackOrientation, quarterTurns: number): RackOrientation {
+  const directions: RackOrientation[] = ["front-positive-z", "front-positive-x", "front-negative-z", "front-negative-x"];
+  const index = directions.indexOf(orientation);
+  const next = ((index + quarterTurns) % directions.length + directions.length) % directions.length;
+  return directions[next];
+}
+
+function rotateVectorY(vector: Vector3, quarterTurns: number): Vector3 {
+  let current = { ...vector };
+  const turns = ((quarterTurns % 4) + 4) % 4;
+  for (let i = 0; i < turns; i += 1) current = { x: current.z, y: current.y, z: -current.x };
+  return current;
+}
+
+function rotatesFootprint(type: CoolingObjectType): boolean {
+  return ["crac-crah", "in-row-cooler", "floor-perforated-tile", "ceiling-supply-diffuser", "ceiling-return-grille", "wall-supply-grille", "wall-return-grille", "cdu"].includes(type);
+}
+
+function mirrorPosition(position: Vector3, axis: "x" | "z", mirrorLine: number): Vector3 {
+  return axis === "z" ? { ...position, z: mirrorLine * 2 - position.z } : { ...position, x: mirrorLine * 2 - position.x };
+}
+
+function mirrorDirection(direction: Vector3, axis: "x" | "z"): Vector3 {
+  return axis === "z" ? { ...direction, z: -direction.z } : { ...direction, x: -direction.x };
+}
+
+function mirrorOrientation(orientation: RackOrientation, axis: "x" | "z"): RackOrientation {
+  const front = mirrorDirection(orientationVector(orientation), axis);
+  return orientationFromDirection(front);
+}
+
 function rackGroupBounds(racks: Rack[]): { minX: number; maxX: number; minZ: number; maxZ: number } {
   return racks.reduce(
     (bounds, rack) => ({
@@ -814,6 +1010,16 @@ function uniqueRackId(base: string, existingIds: Set<string>, ordinal: number): 
   return candidate;
 }
 
+function uniqueObjectId(base: string, existingIds: Set<string>, ordinal: number): string {
+  let candidate = `${base}-${ordinal}`;
+  let suffix = ordinal;
+  while (existingIds.has(candidate)) {
+    suffix += 1;
+    candidate = `${base}-${suffix}`;
+  }
+  return candidate;
+}
+
 function preferredMirrorAxis(racks: Rack[]): "x" | "z" {
   const front = orientationVector(racks[0]?.orientation ?? "front-positive-z");
   return Math.abs(front.z) >= Math.abs(front.x) ? "z" : "x";
@@ -821,6 +1027,15 @@ function preferredMirrorAxis(racks: Rack[]): "x" | "z" {
 
 function orientationDirection(orientation: RackOrientation): Vector3 {
   return orientationVector(orientation);
+}
+
+function rackRowIdentity(rack: Rack, fallbackIndex: number): { rowId: string; slotIndex: number } {
+  const match = rack.arrayId ? rack.id.match(/-r(\d+)c(\d+)/) : undefined;
+  if (match) return { rowId: `${rack.arrayId}-row-${Number(match[1])}`, slotIndex: Number(match[2]) - 1 };
+  const front = orientationVector(rack.orientation);
+  const rowAxis = Math.abs(front.z) >= Math.abs(front.x) ? "x" : "z";
+  const lateral = rowAxis === "x" ? rack.position.z : rack.position.x;
+  return { rowId: `derived-${rowAxis}-${rack.orientation}-${Math.round(lateral / 0.5)}`, slotIndex: fallbackIndex };
 }
 
 function aisleOrientations(axis: "x" | "z", type: "hot" | "cold"): { original: RackOrientation; clone: RackOrientation } {
@@ -873,7 +1088,7 @@ function mirrorSelectedRowForAisle(
     ...historyPatch(state),
     selectedIds: clones.map((rack) => rack.id),
     workspaceMode: "plan",
-    detectedAisles: detectAisles(scenario),
+    ...topologyPatch(scenario),
     statusMessage: `Created ${label} with ${selectedRacks.length} mirrored rack(s).`
   });
 }

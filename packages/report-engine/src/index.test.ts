@@ -15,6 +15,8 @@ describe("report engine", () => {
     expect(html).toContain("Methodology");
     expect(html).toContain("Cooling Configuration");
     expect(html).toContain("Containment Configuration");
+    expect(html).toContain("Thermal Topology Summary");
+    expect(html).toContain("Rack orientation assumption");
     expect(html).toContain("Thermal Results");
     expect(html).toContain("Airflow Results");
     expect(html).toContain("Risk Register");

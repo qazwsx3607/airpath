@@ -68,9 +68,15 @@ export function App() {
   const showGrid = useAirPathStore((state) => state.showGrid);
   const showAirflowLayer = useAirPathStore((state) => state.showAirflowLayer);
   const showHeatmapLayer = useAirPathStore((state) => state.showHeatmapLayer);
+  const showThermalZones = useAirPathStore((state) => state.showThermalZones);
+  const showZoneLabels = useAirPathStore((state) => state.showZoneLabels);
+  const showAirflowBoundaries = useAirPathStore((state) => state.showAirflowBoundaries);
   const showDimensions = useAirPathStore((state) => state.showDimensions);
   const toggleAirflowLayer = useAirPathStore((state) => state.toggleAirflowLayer);
   const toggleHeatmapLayer = useAirPathStore((state) => state.toggleHeatmapLayer);
+  const toggleThermalZones = useAirPathStore((state) => state.toggleThermalZones);
+  const toggleZoneLabels = useAirPathStore((state) => state.toggleZoneLabels);
+  const toggleAirflowBoundaries = useAirPathStore((state) => state.toggleAirflowBoundaries);
   const toggleDimensions = useAirPathStore((state) => state.toggleDimensions);
   const undo = useAirPathStore((state) => state.undo);
   const redo = useAirPathStore((state) => state.redo);
@@ -330,6 +336,18 @@ export function App() {
               <button type="button" className={showHeatmapLayer ? "active" : ""} onClick={toggleHeatmapLayer} data-testid="layer-heatmap">
                 <Flame size={13} />
                 {t(language, "heatmap")}
+              </button>
+              <button type="button" className={showThermalZones ? "active" : ""} onClick={toggleThermalZones} data-testid="layer-thermal-zones">
+                <Boxes size={13} />
+                Zones
+              </button>
+              <button type="button" className={showZoneLabels ? "active" : ""} onClick={toggleZoneLabels} data-testid="layer-zone-labels">
+                <Tag size={13} />
+                Zone labels
+              </button>
+              <button type="button" className={showAirflowBoundaries ? "active" : ""} onClick={toggleAirflowBoundaries} data-testid="layer-airflow-boundaries">
+                <Wind size={13} />
+                Boundaries
               </button>
               <button type="button" className={showAirflowLayer ? "active" : ""} onClick={toggleAirflowLayer} data-testid="layer-airflow">
                 <Wind size={13} />

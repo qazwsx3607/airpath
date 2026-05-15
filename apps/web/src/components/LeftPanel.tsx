@@ -80,6 +80,7 @@ export function LeftPanel() {
   const particleSpeed = useAirPathStore((state) => state.particleSpeed);
   const airflowOpacity = useAirPathStore((state) => state.airflowOpacity);
   const thermalOpacity = useAirPathStore((state) => state.thermalOpacity);
+  const thermalZoneOpacity = useAirPathStore((state) => state.thermalZoneOpacity);
   const thermalPalette = useAirPathStore((state) => state.thermalPalette);
   const thermalColorMode = useAirPathStore((state) => state.thermalColorMode);
   const thermalScaleMode = useAirPathStore((state) => state.thermalScaleMode);
@@ -94,6 +95,7 @@ export function LeftPanel() {
   const setParticleSpeed = useAirPathStore((state) => state.setParticleSpeed);
   const setAirflowOpacity = useAirPathStore((state) => state.setAirflowOpacity);
   const setThermalOpacity = useAirPathStore((state) => state.setThermalOpacity);
+  const setThermalZoneOpacity = useAirPathStore((state) => state.setThermalZoneOpacity);
   const setThermalPalette = useAirPathStore((state) => state.setThermalPalette);
   const setThermalColorMode = useAirPathStore((state) => state.setThermalColorMode);
   const setThermalScaleMode = useAirPathStore((state) => state.setThermalScaleMode);
@@ -313,6 +315,10 @@ export function LeftPanel() {
                 onChange={(event) => setThermalOpacity(Number(event.target.value))}
                 data-testid="thermal-opacity"
               />
+            </label>
+            <label>
+              Thermal zone opacity ({Math.round(thermalZoneOpacity * 100)}%)
+              <input type="range" min={0.12} max={0.58} step={0.02} value={thermalZoneOpacity} onChange={(event) => setThermalZoneOpacity(Number(event.target.value))} data-testid="thermal-zone-opacity" />
             </label>
             <details open>
               <summary>Thermal palette and scale</summary>

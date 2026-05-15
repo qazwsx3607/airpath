@@ -3,6 +3,9 @@ import {
   createContainmentObject,
   createCoolingObject,
   createDefaultScenario,
+  defaultRackArrayInput,
+  generateRackArray,
+  roomTemplates,
   type CoolingObject,
   type Rack,
   type Scenario,
@@ -118,6 +121,22 @@ describe("solver core validation cases", () => {
     expect(result.warnings.map((warning) => warning.type)).toContain("supply-return-short-circuit");
     expect(result.warnings.map((warning) => warning.type)).toContain("cooling-capacity-insufficient");
   });
+
+  it("surfaces topology warnings for contained hot aisles without a valid sink", () => {
+    const scenario = createDefaultScenario("medium");
+    scenario.racks = buildBackToBackRows();
+    scenario.coolingObjects = [];
+    const hotAisleRackIds = scenario.racks.map((rack) => rack.id);
+    scenario.containmentObjects = [
+      {
+        ...createContainmentObject("hot-aisle", 1, scenario.room, hotAisleRackIds),
+        position: { x: 4.2, y: 1.35, z: 4.4 },
+        size: { width: 3.5, depth: 1.2, height: 2.7 }
+      }
+    ];
+    const result = solveScenario(scenario);
+    expect(result.warnings.map((warning) => warning.type)).toContain("contained-zone-no-sink");
+  });
 });
 
 function scenarioWithOneRack(heatLoadKw: number): Scenario {
@@ -153,4 +172,27 @@ function highAirflowCooling(scenario: Scenario): CoolingObject {
     coolingCapacityKw: 35,
     supplyTemperatureC: 17
   };
+}
+
+function buildBackToBackRows(): Rack[] {
+  const room = roomTemplates.medium;
+  const rowA = generateRackArray({
+    ...defaultRackArrayInput(room),
+    id: "solver-row-a",
+    name: "Solver Row A",
+    rows: 1,
+    columns: 4,
+    startPosition: { x: 3, y: 0, z: 3.2 },
+    orientation: "front-negative-z"
+  });
+  const rowB = generateRackArray({
+    ...defaultRackArrayInput(room),
+    id: "solver-row-b",
+    name: "Solver Row B",
+    rows: 1,
+    columns: 4,
+    startPosition: { x: 3, y: 0, z: 5.6 },
+    orientation: "front-positive-z"
+  });
+  return [...rowA, ...rowB];
 }

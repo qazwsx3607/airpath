@@ -1049,6 +1049,50 @@ button.object-label {
   color: var(--thermal-hot);
 }
 
+.object-label.thermal-zone {
+  max-width: 220px;
+  padding: 5px 8px;
+  border: 1px solid rgba(253, 186, 116, 0.56);
+  border-radius: 6px;
+  background: rgba(11, 15, 20, 0.78);
+  color: #fed7aa;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.26);
+}
+
+.object-label.thermal-zone.cold {
+  border-color: rgba(125, 211, 252, 0.56);
+  color: #bae6fd;
+}
+
+.gumball-widget {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(30px, auto));
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  border-radius: 8px;
+  background: rgba(8, 13, 19, 0.88);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.32);
+}
+
+.gumball-widget button {
+  min-width: 30px;
+  min-height: 28px;
+  padding: 3px 6px;
+  border: 1px solid rgba(56, 189, 248, 0.34);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.9);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+}
+
+.gumball-widget button:hover {
+  border-color: rgba(56, 189, 248, 0.72);
+  background: rgba(14, 74, 103, 0.92);
+}
+
 .heat-legend {
   width: 186px;
   padding: 8px;

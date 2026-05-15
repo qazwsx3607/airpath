@@ -7,10 +7,13 @@ import {
   type CoolingObject,
   type Rack,
   type Scenario,
+  type ThermalZone,
   type Vector3,
+  clampPointToThermalZone,
   generateRackArray,
   isReturnObject,
   orientationVector,
+  pointInThermalZone,
   rackRearVector
 } from "@airpath/scenario-schema";
 import { cellCenter, sampleVectorField, type SimulationResult, type SimulationWarning, type SimulationWarningSeverity } from "@airpath/solver-core";
@@ -32,7 +35,12 @@ export function Viewport3D() {
   const showWarningPins = useAirPathStore((state) => state.showWarningPins);
   const showAirflowLayer = useAirPathStore((state) => state.showAirflowLayer);
   const showHeatmapLayer = useAirPathStore((state) => state.showHeatmapLayer);
+  const showThermalZones = useAirPathStore((state) => state.showThermalZones);
+  const showZoneLabels = useAirPathStore((state) => state.showZoneLabels);
+  const showAirflowBoundaries = useAirPathStore((state) => state.showAirflowBoundaries);
   const showDimensions = useAirPathStore((state) => state.showDimensions);
+  const thermalZoneOpacity = useAirPathStore((state) => state.thermalZoneOpacity);
+  const thermalTopology = useAirPathStore((state) => state.thermalTopology);
   const rackDraft = useAirPathStore((state) => state.rackDraft);
   const activeStep = useAirPathStore((state) => state.activeStep);
   const rightTab = useAirPathStore((state) => state.rightTab);
@@ -55,6 +63,8 @@ export function Viewport3D() {
   const updateRackPositionPreview = useAirPathStore((state) => state.updateRackPositionPreview);
   const commitScenarioHistory = useAirPathStore((state) => state.commitScenarioHistory);
   const focusWarningCluster = useAirPathStore((state) => state.focusWarningCluster);
+  const moveSelectedObjects = useAirPathStore((state) => state.moveSelectedObjects);
+  const rotateSelectedObjects = useAirPathStore((state) => state.rotateSelectedObjects);
   const dragRef = useRef<RackDragState | null>(null);
   const [draggingRackId, setDraggingRackId] = useState<string | undefined>();
 
@@ -215,7 +225,25 @@ export function Viewport3D() {
           onSelect={(event) => editMode !== "locked" && selectObject(object.id, event.nativeEvent.shiftKey)}
         />
       ))}
-      {showAirflow && <AirflowStreamlines result={result} density={particleDensity} speed={particleSpeed} opacity={airflowOpacity} />}
+      {showThermalZones && thermalTopology.thermalZones.map((zone) => (
+        <ThermalZoneVolume
+          key={zone.id}
+          zone={zone}
+          opacity={thermalZoneOpacity}
+          showLabel={showZoneLabels}
+          showBoundary={showAirflowBoundaries}
+          language={language}
+        />
+      ))}
+      {editMode === "move" && selectedIds.length > 0 && (
+        <UniversalTransformGizmo
+          scenario={scenario}
+          selectedIds={selectedIds}
+          onMove={moveSelectedObjects}
+          onRotate={rotateSelectedObjects}
+        />
+      )}
+      {showAirflow && <AirflowStreamlines scenario={scenario} thermalZones={thermalTopology.thermalZones} result={result} density={particleDensity} speed={particleSpeed} opacity={airflowOpacity} />}
       {warningPinsVisible && warningClusters.map((cluster) => (
         <Html key={cluster.id} position={[cluster.position.x, cluster.position.y + 0.25, cluster.position.z]} center zIndexRange={[20, 0]}>
           <button
@@ -475,6 +503,91 @@ function ContainmentMesh({
   );
 }
 
+function ThermalZoneVolume({
+  zone,
+  opacity,
+  showLabel,
+  showBoundary,
+  language
+}: {
+  zone: ThermalZone;
+  opacity: number;
+  showLabel: boolean;
+  showBoundary: boolean;
+  language: "en" | "zh";
+}) {
+  const isHot = zone.aisleType === "hot";
+  const boundaryOpacity = zone.containmentState === "contained" ? Math.min(0.46, opacity + 0.12) : Math.min(0.28, opacity);
+  return (
+    <group position={[zone.center.x, zone.height / 2, zone.center.z]}>
+      <mesh renderOrder={-1}>
+        <boxGeometry args={[zone.size.width, zone.height, zone.size.depth]} />
+        <meshStandardMaterial color={zone.visualStyle.color} transparent opacity={Math.min(0.42, opacity)} depthWrite={false} roughness={0.7} />
+        <Edges color={zone.visualStyle.outlineColor} />
+      </mesh>
+      {zone.containmentState === "contained" && showBoundary && (
+        <>
+          <mesh position={[0, zone.height / 2 + 0.018, 0]}>
+            <boxGeometry args={[zone.size.width, 0.036, zone.size.depth]} />
+            <meshBasicMaterial color={zone.visualStyle.outlineColor} transparent opacity={boundaryOpacity} depthWrite={false} />
+          </mesh>
+          <mesh position={[0, 0, -zone.size.depth / 2]}>
+            <boxGeometry args={[zone.size.width, zone.height, 0.035]} />
+            <meshBasicMaterial color={zone.visualStyle.outlineColor} transparent opacity={boundaryOpacity * 0.72} depthWrite={false} />
+          </mesh>
+          <mesh position={[0, 0, zone.size.depth / 2]}>
+            <boxGeometry args={[zone.size.width, zone.height, 0.035]} />
+            <meshBasicMaterial color={zone.visualStyle.outlineColor} transparent opacity={boundaryOpacity * 0.72} depthWrite={false} />
+          </mesh>
+        </>
+      )}
+      {showLabel && (
+        <Html position={[0, zone.height / 2 + 0.28, 0]} center style={{ pointerEvents: "none" }}>
+          <span className={`object-label thermal-zone ${isHot ? "hot" : "cold"}`} data-testid={`thermal-zone-${zone.type}`}>
+            {zone.containmentState === "contained" ? (isHot ? "Contained Hot Aisle" : "Contained Cold Aisle") : isHot ? "Hot Aisle" : "Cold Aisle"}
+            {language === "zh" ? " / 熱通道結界" : ""}
+          </span>
+        </Html>
+      )}
+    </group>
+  );
+}
+
+function UniversalTransformGizmo({
+  scenario,
+  selectedIds,
+  onMove,
+  onRotate
+}: {
+  scenario: Scenario;
+  selectedIds: string[];
+  onMove: (dx: number, dz: number) => void;
+  onRotate: (degrees: number) => void;
+}) {
+  const center = selectedCenter(scenario, selectedIds);
+  if (!center) return null;
+  return (
+    <group>
+      <Line points={[[center.x, center.y, center.z], [center.x + 1.05, center.y, center.z]]} color="#EF4444" transparent opacity={0.9} lineWidth={2.2} />
+      <Line points={[[center.x, center.y, center.z], [center.x, center.y, center.z + 1.05]]} color="#38BDF8" transparent opacity={0.9} lineWidth={2.2} />
+      <mesh position={[center.x, center.y, center.z]}>
+        <sphereGeometry args={[0.08, 16, 16]} />
+        <meshStandardMaterial color="#E5EDF5" emissive="#38BDF8" emissiveIntensity={0.18} />
+      </mesh>
+      <Html position={[center.x, center.y + 0.46, center.z]} center>
+        <div className="gumball-widget" data-testid="universal-transform-gizmo">
+          <button type="button" onClick={() => onMove(-0.25, 0)} data-testid="gumball-x-minus">X-</button>
+          <button type="button" onClick={() => onMove(0.25, 0)} data-testid="gumball-x-plus">X+</button>
+          <button type="button" onClick={() => onMove(0, -0.25)} data-testid="gumball-y-minus">Y-</button>
+          <button type="button" onClick={() => onMove(0, 0.25)} data-testid="gumball-y-plus">Y+</button>
+          <button type="button" onClick={() => onMove(0.25, 0.25)} data-testid="gumball-plane">XY</button>
+          <button type="button" onClick={() => onRotate(90)} data-testid="gumball-rotate">R</button>
+        </div>
+      </Html>
+    </group>
+  );
+}
+
 function ThermalSlice({
   result,
   opacity,
@@ -615,8 +728,22 @@ const thermalFragmentShader = `
   }
 `;
 
-function AirflowStreamlines({ result, density, speed, opacity }: { result: SimulationResult; density: number; speed: number; opacity: number }) {
-  const paths = useMemo(() => buildStreamlines(result, density), [result, density]);
+function AirflowStreamlines({
+  scenario,
+  thermalZones,
+  result,
+  density,
+  speed,
+  opacity
+}: {
+  scenario: Scenario;
+  thermalZones: ThermalZone[];
+  result: SimulationResult;
+  density: number;
+  speed: number;
+  opacity: number;
+}) {
+  const paths = useMemo(() => buildStreamlines(result, density, scenario, thermalZones), [result, density, scenario, thermalZones]);
   return (
     <group>
       {paths.map((path, index) => (
@@ -671,17 +798,59 @@ function CameraFocus({ point, room, viewMode }: { point?: Vector3; room: Scenari
   return null;
 }
 
-function buildStreamlines(result: SimulationResult, density: number): Vector3[][] {
+function buildStreamlines(result: SimulationResult, density: number, scenario: Scenario, thermalZones: ThermalZone[]): Vector3[][] {
   const paths: Vector3[][] = [];
+  const topologySeeds = streamlineSourceSeeds(scenario, result);
+  for (const seed of topologySeeds) {
+    const path = constrainPathToThermalZones(smoothPath(tracePath(seed, result)), thermalZones);
+    if (path.length > 2) paths.push(path);
+    if (paths.length >= density) return paths;
+  }
   const cellCount = result.vectorField.length;
   const step = Math.max(1, Math.floor(cellCount / density));
   for (let index = 0; index < cellCount && paths.length < density; index += step) {
     const start = jitterPoint(cellCenter(index, result.grid), index, result.grid.cellSizeM, result);
     if (start.y < 0.2 || start.y > result.grid.ny * result.grid.cellSizeM - 0.2) continue;
-    const path = smoothPath(tracePath(start, result));
+    const path = constrainPathToThermalZones(smoothPath(tracePath(start, result)), thermalZones);
     if (path.length > 2) paths.push(path);
   }
   return paths;
+}
+
+function streamlineSourceSeeds(scenario: Scenario, result: SimulationResult): Vector3[] {
+  const seeds: Vector3[] = [];
+  for (const rack of scenario.racks) {
+    const rear = rackRearVector(rack);
+    const span = Math.abs(rear.x) > Math.abs(rear.z) ? rack.size.width / 2 : rack.size.depth / 2;
+    seeds.push({
+      x: clamp(rack.position.x + rear.x * (span + 0.16), 0.05, result.grid.nx * result.grid.cellSizeM - 0.05),
+      y: clamp(rack.size.height * 0.62, 0.15, result.grid.ny * result.grid.cellSizeM - 0.05),
+      z: clamp(rack.position.z + rear.z * (span + 0.16), 0.05, result.grid.nz * result.grid.cellSizeM - 0.05)
+    });
+  }
+  for (const object of scenario.coolingObjects.filter((item) => item.enabled && item.coolingCapacityKw > 0)) {
+    seeds.push({
+      x: clamp(object.position.x + object.direction.x * 0.28, 0.05, result.grid.nx * result.grid.cellSizeM - 0.05),
+      y: clamp(object.position.y + object.direction.y * 0.28, 0.08, result.grid.ny * result.grid.cellSizeM - 0.05),
+      z: clamp(object.position.z + object.direction.z * 0.28, 0.05, result.grid.nz * result.grid.cellSizeM - 0.05)
+    });
+  }
+  return seeds;
+}
+
+function constrainPathToThermalZones(path: Vector3[], thermalZones: ThermalZone[]): Vector3[] {
+  const containedZone = thermalZones.find((zone) => zone.containmentState === "contained" && pointInThermalZone(path[0], zone));
+  if (!containedZone) return path;
+  const constrained: Vector3[] = [];
+  for (const point of path) {
+    if (pointInThermalZone(point, containedZone)) {
+      constrained.push(point);
+      continue;
+    }
+    constrained.push(clampPointToThermalZone(point, containedZone));
+    break;
+  }
+  return constrained;
 }
 
 function jitterPoint(point: Vector3, index: number, amount: number, result: SimulationResult): Vector3 {
@@ -814,6 +983,21 @@ function pathColor(path: Vector3[]): string {
   const start = path[0];
   const end = path[path.length - 1];
   return end.y > start.y + 0.4 ? "#F97316" : end.y < start.y - 0.3 ? "#38BDF8" : "#CBD5E1";
+}
+
+function selectedCenter(scenario: Scenario, selectedIds: string[]): Vector3 | undefined {
+  const selected = new Set(selectedIds);
+  const objects = [
+    ...scenario.racks.filter((rack) => selected.has(rack.id)).map((rack) => ({ position: rack.position, height: rack.size.height })),
+    ...scenario.coolingObjects.filter((object) => selected.has(object.id)).map((object) => ({ position: object.position, height: object.size.height })),
+    ...scenario.containmentObjects.filter((object) => selected.has(object.id)).map((object) => ({ position: object.position, height: object.size.height }))
+  ];
+  if (objects.length === 0) return undefined;
+  const total = objects.reduce(
+    (sum, object) => ({ x: sum.x + object.position.x, y: sum.y + object.height, z: sum.z + object.position.z }),
+    { x: 0, y: 0, z: 0 }
+  );
+  return { x: total.x / objects.length, y: Math.max(0.35, total.y / objects.length + 0.28), z: total.z / objects.length };
 }
 
 function distance(a: Vector3, b: Vector3): number {

@@ -4,11 +4,15 @@ import {
   type Rack,
   type Scenario,
   type SimulationSettings,
+  type Size3,
+  type TopologyWarning,
   type Vector3,
   AIRPATH_DISCLAIMER,
+  analyzeThermalTopology,
   clamp,
   isReturnObject,
   isSupplyObject,
+  orientationFromDirection,
   orientationVector,
   residualAirHeatKw,
   totalResidualAirHeatKw
@@ -25,7 +29,13 @@ export type SimulationWarningType =
   | "rack-heat-density-too-high"
   | "containment-gap-detected"
   | "return-path-weak"
-  | "liquid-cooling-residual-heat-still-high";
+  | "liquid-cooling-residual-heat-still-high"
+  | "ambiguous-aisle-orientation"
+  | "inrow-intake-mismatch"
+  | "contained-zone-no-sink"
+  | "rack-exhaust-unzoned"
+  | "thermal-zone-missing"
+  | "hot-aisle-interrupted";
 
 export interface SimulationWarning {
   id: string;
@@ -98,6 +108,7 @@ export function solveScenario(scenario: Scenario, mode: SimulationSettings["mode
   const vectors = new Array<Vector3>(cellCount);
   const supplies = scenario.coolingObjects.filter(isSupplyObject);
   const returns = scenario.coolingObjects.filter((object) => isReturnObject(object) || object.returnMode !== "none");
+  const topology = analyzeThermalTopology(scenario);
   const cduResidualHeatKw = scenario.coolingObjects
     .filter((object) => object.enabled && object.type === "cdu")
     .reduce((sum, object) => sum + (object.residualHeatKw ?? 0), 0);
@@ -110,9 +121,10 @@ export function solveScenario(scenario: Scenario, mode: SimulationSettings["mode
     let vector = { x: 0, y: 0, z: 0 };
 
     for (const supply of supplies) {
-      const barrierFactor = containmentBarrierFactor(supply.position, center, scenario.containmentObjects, settings);
-      const proximity = influence(center, supply.position, 5.5);
-      const direction = normalize(supply.direction);
+      const supplyPoint = coolingSupplyPoint(supply);
+      const barrierFactor = containmentBarrierFactor(supplyPoint, center, scenario.containmentObjects, settings);
+      const proximity = influence(center, supplyPoint, 5.5);
+      const direction = normalize(coolingSupplyDirection(supply));
       const verticalBoost = supply.type === "floor-perforated-tile" ? { x: 0, y: 0.45, z: 0 } : { x: 0, y: 0, z: 0 };
       const airflowStrength = (supply.airflowLps / 700) * proximity * barrierFactor;
       vector = add(vector, scale(add(direction, verticalBoost), airflowStrength));
@@ -162,7 +174,7 @@ export function solveScenario(scenario: Scenario, mode: SimulationSettings["mode
   const rackInlets = scenario.racks.map((rack) => estimateRackInlet(rack, temperatureFieldC, vectors, grid, settings));
   const totalCoolingCapacityKw = supplies.reduce((sum, object) => sum + object.coolingCapacityKw, 0);
   const totalAirHeatKw = totalResidualAirHeatKw(scenario.racks, cduResidualHeatKw);
-  const warnings = generateWarnings(scenario, rackInlets, totalAirHeatKw, totalCoolingCapacityKw);
+  const warnings = generateWarnings(scenario, rackInlets, totalAirHeatKw, totalCoolingCapacityKw, topology.warnings);
   const criticalWarnings = warnings.filter((warning) => warning.severity === "critical");
   const maxRackInletTemperatureC = rackInlets.length ? Math.max(...rackInlets.map((rack) => rack.inletTemperatureC)) : settings.ambientTemperatureC;
   const averageRackInletTemperatureC = rackInlets.length
@@ -322,9 +334,19 @@ function generateWarnings(
   scenario: Scenario,
   rackInlets: RackInletResult[],
   totalAirHeatKw: number,
-  totalCoolingCapacityKw: number
+  totalCoolingCapacityKw: number,
+  topologyWarnings: TopologyWarning[] = []
 ): SimulationWarning[] {
-  const warnings: SimulationWarning[] = [];
+  const warnings: SimulationWarning[] = topologyWarnings.map((warning) => ({
+    id: warning.id,
+    type: warning.type,
+    severity: warning.severity,
+    label: warning.label,
+    message: warning.message,
+    suggestedMitigation: warning.suggestedMitigation,
+    objectIds: warning.objectIds,
+    position: warning.position
+  }));
   const settings = scenario.simulationSettings;
 
   for (const rackResult of rackInlets) {
@@ -515,9 +537,37 @@ function containmentToBounds(object: ContainmentObject): Bounds {
   };
 }
 
+function coolingSupplyPoint(object: CoolingObject): Vector3 {
+  if (object.type !== "in-row-cooler") return object.position;
+  const orientation = object.orientation ?? orientationFromDirection(object.direction);
+  const front = orientationVector(orientation);
+  const offset = faceOffset(object.size, front);
+  return {
+    x: object.position.x + front.x * (offset + 0.18),
+    y: Math.min(object.size.height * 0.5, object.position.y + 0.18),
+    z: object.position.z + front.z * (offset + 0.18)
+  };
+}
+
+function coolingSupplyDirection(object: CoolingObject): Vector3 {
+  if (object.type !== "in-row-cooler") return object.direction;
+  const orientation = object.orientation ?? orientationFromDirection(object.direction);
+  return orientationVector(orientation);
+}
+
 function returnPosition(object: CoolingObject, roomHeight: number): Vector3 {
   if (object.type === "crac-crah") {
     return { x: object.position.x, y: Math.min(roomHeight - 0.35, object.position.y + 1.2), z: object.position.z };
+  }
+  if (object.type === "in-row-cooler") {
+    const front = orientationVector(object.orientation ?? orientationFromDirection(object.direction));
+    const rear = { x: -front.x, y: 0, z: -front.z };
+    const offset = faceOffset(object.size, rear);
+    return {
+      x: object.position.x + rear.x * (offset + 0.18),
+      y: Math.min(object.size.height * 0.62, object.position.y + 0.35),
+      z: object.position.z + rear.z * (offset + 0.18)
+    };
   }
   return object.position;
 }
@@ -533,7 +583,11 @@ function rackHotExhaustPoint(rack: Rack): Vector3 {
 }
 
 function rackFaceOffset(rack: Rack, direction: Vector3): number {
-  return Math.abs(direction.x) > Math.abs(direction.z) ? rack.size.width / 2 : rack.size.depth / 2;
+  return faceOffset(rack.size, direction);
+}
+
+function faceOffset(size: Size3, direction: Vector3): number {
+  return Math.abs(direction.x) > Math.abs(direction.z) ? size.width / 2 : size.depth / 2;
 }
 
 function rackExhaustVector(rack: Rack): Vector3 {

@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState, type PointerEvent } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, CopyPlus, Move, Snowflake, ThermometerSun, Wind } from "lucide-react";
-import { isReturnObject, rackFrontVector, rackRearVector, type Rack, type Scenario, type Vector3 } from "@airpath/scenario-schema";
+﻿import { useMemo, useRef, useState, type PointerEvent } from "react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, CopyPlus, Move, RotateCcw, RotateCw, Snowflake, ThermometerSun, Wind } from "lucide-react";
+import { isReturnObject, rackFrontVector, rackRearVector, type Rack, type Scenario, type Size3, type Vector3 } from "@airpath/scenario-schema";
 import { useAirPathStore } from "../store";
 
 interface PlanPoint {
@@ -21,8 +21,9 @@ export function PlanView() {
   const selectObject = useAirPathStore((state) => state.selectObject);
   const selectObjects = useAirPathStore((state) => state.selectObjects);
   const clearSelection = useAirPathStore((state) => state.clearSelection);
-  const moveSelectedRacks = useAirPathStore((state) => state.moveSelectedRacks);
-  const mirrorSelectedRacks = useAirPathStore((state) => state.mirrorSelectedRacks);
+  const moveSelectedObjects = useAirPathStore((state) => state.moveSelectedObjects);
+  const rotateSelectedObjects = useAirPathStore((state) => state.rotateSelectedObjects);
+  const mirrorSelectedObjects = useAirPathStore((state) => state.mirrorSelectedObjects);
   const createBackToBackHotAisle = useAirPathStore((state) => state.createBackToBackHotAisle);
   const createFaceToFaceColdAisle = useAirPathStore((state) => state.createFaceToFaceColdAisle);
   const convertSelectedRacksToInRowCooling = useAirPathStore((state) => state.convertSelectedRacksToInRowCooling);
@@ -31,10 +32,11 @@ export function PlanView() {
   const detectedAisles = useAirPathStore((state) => state.detectedAisles);
   const [drag, setDrag] = useState<DragState | undefined>();
   const selectedRacks = scenario.racks.filter((rack) => selectedSet.has(rack.id));
-  const selectedBounds = selectedRacks.length > 0 ? groupBounds(selectedRacks) : undefined;
+  const selectedObjects = transformableObjects(scenario).filter((object) => selectedSet.has(object.id));
+  const selectedBounds = selectedObjects.length > 0 ? groupBounds(selectedObjects) : undefined;
   const selectionRect = drag?.type === "box" ? rectFromPoints(drag.start, drag.current) : undefined;
 
-  function toPlanPoint(event: PointerEvent<SVGSVGElement | SVGGElement>): PlanPoint {
+  function toPlanPoint(event: PointerEvent<SVGSVGElement | SVGGElement | SVGRectElement>): PlanPoint {
     const box = svgRef.current?.getBoundingClientRect();
     if (!box) return { x: 0, z: 0 };
     return {
@@ -49,12 +51,16 @@ export function PlanView() {
     setDrag({ type: "box", start, current: start });
   }
 
-  function handleRackPointerDown(event: PointerEvent<SVGGElement>, rack: Rack) {
+  function handleObjectPointerDown(event: PointerEvent<SVGGElement | SVGRectElement>, id: string) {
     if (event.button !== 0 || editMode === "locked") return;
     event.stopPropagation();
     const start = toPlanPoint(event);
-    selectObject(rack.id, event.shiftKey);
+    selectObject(id, event.shiftKey);
     if (editMode === "move") setDrag({ type: "move", start, current: start });
+  }
+
+  function handleRackPointerDown(event: PointerEvent<SVGGElement>, rack: Rack) {
+    handleObjectPointerDown(event, rack.id);
   }
 
   function handlePointerMove(event: PointerEvent<SVGSVGElement>) {
@@ -67,15 +73,15 @@ export function PlanView() {
     const end = toPlanPoint(event);
     if (drag.type === "box") {
       const box = rectFromPoints(drag.start, end);
-      const ids = scenario.racks
-        .filter((rack) => rack.position.x >= box.x && rack.position.x <= box.x + box.width && rack.position.z >= box.z && rack.position.z <= box.z + box.depth)
-        .map((rack) => rack.id);
-      if (ids.length > 0) selectObjects(ids, `Selected ${ids.length} rack(s) with box selection.`);
+      const ids = transformableObjects(scenario)
+        .filter((object) => object.position.x >= box.x && object.position.x <= box.x + box.width && object.position.z >= box.z && object.position.z <= box.z + box.depth)
+        .map((object) => object.id);
+      if (ids.length > 0) selectObjects(ids, `Selected ${ids.length} object(s) with box selection.`);
       else clearSelection();
     } else {
       const dx = snap(end.x - drag.start.x, 0.25);
       const dz = snap(end.z - drag.start.z, 0.25);
-      if (Math.abs(dx) >= 0.01 || Math.abs(dz) >= 0.01) moveSelectedRacks(dx, dz);
+      if (Math.abs(dx) >= 0.01 || Math.abs(dz) >= 0.01) moveSelectedObjects(dx, dz);
     }
     setDrag(undefined);
   }
@@ -85,7 +91,7 @@ export function PlanView() {
       <div className="plan-toolbar" data-testid="plan-toolbar">
         <div>
           <strong>Plan View</strong>
-          <span>{selectedRacks.length} rack(s) selected · snap 0.25 m</span>
+          <span>{selectedObjects.length} object(s) selected - snap 0.25 m</span>
         </div>
         <div className="plan-toolbar-actions">
           <button type="button" className="secondary" onClick={detectAisleZones} data-testid="detect-aisles">
@@ -100,13 +106,21 @@ export function PlanView() {
             <Snowflake size={14} />
             Cold containment
           </button>
-          <button type="button" className="secondary" onClick={() => mirrorSelectedRacks("z", true)} disabled={selectedRacks.length === 0} data-testid="mirror-z">
+          <button type="button" className="secondary" onClick={() => mirrorSelectedObjects("z", true)} disabled={selectedObjects.length === 0} data-testid="mirror-z">
             <CopyPlus size={14} />
             Mirror Y
           </button>
-          <button type="button" className="secondary" onClick={() => mirrorSelectedRacks("x", true)} disabled={selectedRacks.length === 0} data-testid="mirror-x">
+          <button type="button" className="secondary" onClick={() => mirrorSelectedObjects("x", true)} disabled={selectedObjects.length === 0} data-testid="mirror-x">
             <CopyPlus size={14} />
             Mirror X
+          </button>
+          <button type="button" className="secondary" onClick={() => rotateSelectedObjects(-90)} disabled={selectedObjects.length === 0} data-testid="plan-rotate-ccw">
+            <RotateCcw size={14} />
+            Rotate -90
+          </button>
+          <button type="button" className="secondary" onClick={() => rotateSelectedObjects(90)} disabled={selectedObjects.length === 0} data-testid="plan-rotate-cw">
+            <RotateCw size={14} />
+            Rotate +90
           </button>
           <button type="button" className="secondary hot" onClick={createBackToBackHotAisle} disabled={selectedRacks.length === 0} data-testid="create-hot-aisle">
             Back-to-back hot aisle
@@ -158,23 +172,14 @@ export function PlanView() {
               width={object.size.width}
               height={object.size.depth}
               className={`plan-containment ${object.type.includes("hot") ? "hot" : "cold"} ${selectedSet.has(object.id) ? "selected" : ""}`}
-              onPointerDown={(event) => {
-                if (editMode !== "locked") {
-                  event.stopPropagation();
-                  selectObject(object.id, event.shiftKey);
-                }
-              }}
+              onPointerDown={(event) => handleObjectPointerDown(event, object.id)}
+              data-testid="plan-containment-object"
             />
           ))}
           {scenario.coolingObjects.map((object) => {
             const coolingClass = isReturnObject(object) || object.type.includes("return") ? "return" : "supply";
             return (
-              <g key={object.id} onPointerDown={(event) => {
-                if (editMode !== "locked") {
-                  event.stopPropagation();
-                  selectObject(object.id, event.shiftKey);
-                }
-              }}>
+              <g key={object.id} onPointerDown={(event) => handleObjectPointerDown(event, object.id)}>
                 <rect
                   x={object.position.x - object.size.width / 2}
                   y={object.position.z - object.size.depth / 2}
@@ -207,19 +212,19 @@ export function PlanView() {
           )}
         </svg>
         <div className="plan-gizmo" data-testid="plan-gizmo">
-          <button type="button" className="ghost icon-button" onClick={() => moveSelectedRacks(0, -0.25)} disabled={selectedRacks.length === 0} data-testid="plan-gizmo-y-minus" title="Move Y-">
+          <button type="button" className="ghost icon-button" onClick={() => moveSelectedObjects(0, -0.25)} disabled={selectedObjects.length === 0} data-testid="plan-gizmo-y-minus" title="Move Y-">
             <ArrowUp size={16} />
           </button>
-          <button type="button" className="ghost icon-button" onClick={() => moveSelectedRacks(-0.25, 0)} disabled={selectedRacks.length === 0} data-testid="plan-gizmo-x-minus" title="Move X-">
+          <button type="button" className="ghost icon-button" onClick={() => moveSelectedObjects(-0.25, 0)} disabled={selectedObjects.length === 0} data-testid="plan-gizmo-x-minus" title="Move X-">
             <ArrowLeft size={16} />
           </button>
-          <button type="button" className="ghost icon-button plane" onClick={() => moveSelectedRacks(0.25, 0.25)} disabled={selectedRacks.length === 0} data-testid="plan-gizmo-plane" title="Move plane">
+          <button type="button" className="ghost icon-button plane" onClick={() => moveSelectedObjects(0.25, 0.25)} disabled={selectedObjects.length === 0} data-testid="plan-gizmo-plane" title="Move plane">
             <Move size={16} />
           </button>
-          <button type="button" className="ghost icon-button" onClick={() => moveSelectedRacks(0.25, 0)} disabled={selectedRacks.length === 0} data-testid="plan-gizmo-x-plus" title="Move X+">
+          <button type="button" className="ghost icon-button" onClick={() => moveSelectedObjects(0.25, 0)} disabled={selectedObjects.length === 0} data-testid="plan-gizmo-x-plus" title="Move X+">
             <ArrowRight size={16} />
           </button>
-          <button type="button" className="ghost icon-button" onClick={() => moveSelectedRacks(0, 0.25)} disabled={selectedRacks.length === 0} data-testid="plan-gizmo-y-plus" title="Move Y+">
+          <button type="button" className="ghost icon-button" onClick={() => moveSelectedObjects(0, 0.25)} disabled={selectedObjects.length === 0} data-testid="plan-gizmo-y-plus" title="Move Y+">
             <ArrowDown size={16} />
           </button>
         </div>
@@ -270,13 +275,27 @@ function edgePoint(rack: Rack, vector: Vector3): PlanPoint {
   };
 }
 
-function groupBounds(racks: Rack[]) {
-  return racks.reduce(
-    (bounds, rack) => ({
-      minX: Math.min(bounds.minX, rack.position.x - rack.size.width / 2),
-      maxX: Math.max(bounds.maxX, rack.position.x + rack.size.width / 2),
-      minZ: Math.min(bounds.minZ, rack.position.z - rack.size.depth / 2),
-      maxZ: Math.max(bounds.maxZ, rack.position.z + rack.size.depth / 2)
+interface PlanTransformable {
+  id: string;
+  position: Vector3;
+  size: Size3;
+}
+
+function transformableObjects(scenario: Scenario): PlanTransformable[] {
+  return [
+    ...scenario.racks.map((rack) => ({ id: rack.id, position: rack.position, size: rack.size })),
+    ...scenario.coolingObjects.map((object) => ({ id: object.id, position: object.position, size: object.size })),
+    ...scenario.containmentObjects.map((object) => ({ id: object.id, position: object.position, size: object.size }))
+  ];
+}
+
+function groupBounds(objects: PlanTransformable[]) {
+  return objects.reduce(
+    (bounds, object) => ({
+      minX: Math.min(bounds.minX, object.position.x - object.size.width / 2),
+      maxX: Math.max(bounds.maxX, object.position.x + object.size.width / 2),
+      minZ: Math.min(bounds.minZ, object.position.z - object.size.depth / 2),
+      maxZ: Math.max(bounds.maxZ, object.position.z + object.size.depth / 2)
     }),
     { minX: Number.POSITIVE_INFINITY, maxX: Number.NEGATIVE_INFINITY, minZ: Number.POSITIVE_INFINITY, maxZ: Number.NEGATIVE_INFINITY }
   );
@@ -298,3 +317,5 @@ function snap(value: number, increment: number): number {
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
+
+

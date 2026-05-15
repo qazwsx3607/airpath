@@ -4,6 +4,8 @@ import {
   type CoolingObject,
   type Rack,
   type Scenario,
+  type ThermalTopology,
+  analyzeThermalTopology,
   residualAirHeatKw,
   round
 } from "@airpath/scenario-schema";
@@ -22,6 +24,7 @@ export interface ReportData {
   result: SimulationResult;
   screenshots: ReportScreenshots;
   rackRows: Array<Rack & RackInletResult>;
+  topology: ThermalTopology;
   recommendedActions: string[];
   assumptions: string[];
   disclaimer: string;
@@ -66,6 +69,7 @@ export function createReportData(
     result,
     screenshots,
     rackRows,
+    topology: analyzeThermalTopology(scenario),
     recommendedActions: createRecommendedActions(result.warnings),
     assumptions: modelAssumptions(),
     disclaimer: AIRPATH_DISCLAIMER
@@ -173,6 +177,11 @@ export function renderHtmlReport(data: ReportData): string {
     <section class="page-section">
       <h2>${reportText(language, "containmentConfiguration")}</h2>
       ${containmentTable(scenario.containmentObjects, language)}
+    </section>
+
+    <section class="page-section">
+      <h2>Thermal Topology Summary</h2>
+      ${topologySummaryTable(data.topology)}
     </section>
 
     <section class="page-section">
@@ -344,6 +353,34 @@ function containmentTable(objects: ContainmentObject[], language: "en" | "zh"): 
           </tr>`
         )
         .join("")}
+    </tbody>
+  </table>`;
+}
+
+function topologySummaryTable(topology: ThermalTopology): string {
+  const aisleSummary = topology.detectedAisles.length
+    ? topology.detectedAisles.map((aisle) => `${aisle.type} (${aisle.relation}, rows ${aisle.rowIds?.join(" / ") || "-"})`).join("; ")
+    : "No hot/cold aisle topology was detected.";
+  const zoneSummary = topology.thermalZones.length
+    ? topology.thermalZones.map((zone) => `${zone.type} (${zone.containmentState}, ${zone.height.toFixed(1)}m high)`).join("; ")
+    : "No 3D thermal zones were generated.";
+  const inRowSummary = topology.rowModules.filter((module) => module.type === "in-row-cooling").length
+    ? topology.rowModules
+        .filter((module) => module.type === "in-row-cooling")
+        .map((module) => `${module.sourceId}: hot-side return / cold-side supply, row ${module.rowId}`)
+        .join("; ")
+    : "No in-row cooling modules are part of a detected row topology.";
+  const warningSummary = topology.warnings.length
+    ? topology.warnings.map((warning) => `${warning.label}: ${warning.message}`).join("; ")
+    : "No topology warnings generated.";
+  return `<table>
+    <tbody>
+      <tr><th>Detected aisles</th><td>${escapeHtml(aisleSummary)}</td></tr>
+      <tr><th>3D thermal zones</th><td>${escapeHtml(zoneSummary)}</td></tr>
+      <tr><th>Rack orientation assumption</th><td>Cold air enters rack fronts; heated exhaust leaves rack rears. Rack inlet estimates are sampled near the front side.</td></tr>
+      <tr><th>In-row cooling assumption</th><td>${escapeHtml(inRowSummary)}</td></tr>
+      <tr><th>Containment airflow constraint</th><td>Contained aisle streamlines are constrained to the generated thermal zone unless a modeled return, cooling sink, or opening is available.</td></tr>
+      <tr><th>Topology warnings</th><td>${escapeHtml(warningSummary)}</td></tr>
     </tbody>
   </table>`;
 }
