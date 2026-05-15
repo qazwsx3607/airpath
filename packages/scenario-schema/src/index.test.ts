@@ -11,7 +11,11 @@ import {
   convertAirflow,
   convertDimension,
   convertHeat,
-  convertTemperature
+  convertTemperature,
+  detectAisles,
+  oppositeRackOrientation,
+  rackFrontVector,
+  rackRearVector
 } from "./index";
 
 describe("scenario schema", () => {
@@ -58,5 +62,28 @@ describe("scenario schema", () => {
     const restored = deserializeScenario(json);
     expect(restored.room.name).toBe("Small server room");
     expect(restored.racks.length).toBe(scenario.racks.length);
+  });
+
+  it("exposes rack front and rear direction semantics", () => {
+    const rack = createDefaultScenario("small").racks[0];
+    const front = rackFrontVector({ ...rack, orientation: "front-positive-z" });
+    const rear = rackRearVector({ ...rack, orientation: "front-positive-z" });
+    expect(front).toEqual({ x: 0, y: 0, z: 1 });
+    expect(rear).toEqual({ x: 0, y: 0, z: -1 });
+    expect(oppositeRackOrientation("front-positive-x")).toBe("front-negative-x");
+  });
+
+  it("detects hot and cold aisles from rack geometry and orientation", () => {
+    const scenario = createDefaultScenario("small");
+    scenario.racks = [
+      { ...scenario.racks[0], id: "rack-a", position: { x: 3, y: 1.1, z: 2.4 }, orientation: "front-negative-z" },
+      { ...scenario.racks[1], id: "rack-b", position: { x: 3, y: 1.1, z: 4.8 }, orientation: "front-positive-z" }
+    ];
+    expect(detectAisles(scenario)[0]?.type).toBe("hot");
+    scenario.racks = [
+      { ...scenario.racks[0], id: "rack-c", position: { x: 3, y: 1.1, z: 2.4 }, orientation: "front-positive-z" },
+      { ...scenario.racks[1], id: "rack-d", position: { x: 3, y: 1.1, z: 4.8 }, orientation: "front-negative-z" }
+    ];
+    expect(detectAisles(scenario)[0]?.type).toBe("cold");
   });
 });

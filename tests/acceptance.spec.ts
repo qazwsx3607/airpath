@@ -72,7 +72,7 @@ test("AirPath GUI self-acceptance flow", async ({ page }) => {
   await page.getByTestId("toggle-warning-pins").click();
 
   await page.getByTestId("view-thermal").click();
-  await expect(page.getByTestId("heat-legend")).toBeVisible();
+  await expect(page.getByTestId("thermal-colorbar-bottom")).toBeVisible();
   await page.screenshot({ path: shot("05_thermal_view.png") });
 
   await page.getByTestId("view-airflow").click();

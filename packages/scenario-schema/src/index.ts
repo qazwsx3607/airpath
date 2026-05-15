@@ -194,6 +194,22 @@ export type Scenario = z.infer<typeof ScenarioSchema>;
 
 export type RoomTemplateKey = "small" | "medium" | "large" | "custom";
 
+export type AisleType = "hot" | "cold";
+export type AisleRelation = "back-to-back" | "face-to-face";
+export type AisleAxis = "x" | "z";
+
+export interface DetectedAisle {
+  id: string;
+  type: AisleType;
+  relation: AisleRelation;
+  axis: AisleAxis;
+  center: Vector3;
+  size: Size3;
+  rackIds: string[];
+  confidence: number;
+  label: string;
+}
+
 export const roomTemplates: Record<Exclude<RoomTemplateKey, "custom">, Room> = {
   small: {
     id: "room-small",
@@ -280,6 +296,140 @@ export function orientationVector(orientation: RackOrientation): Vector3 {
     case "front-negative-x":
       return { x: -1, y: 0, z: 0 };
   }
+}
+
+export function rackFrontVector(rack: Pick<Rack, "orientation">): Vector3 {
+  return orientationVector(rack.orientation);
+}
+
+export function rackRearVector(rack: Pick<Rack, "orientation">): Vector3 {
+  const front = rackFrontVector(rack);
+  return { x: front.x === 0 ? 0 : -front.x, y: 0, z: front.z === 0 ? 0 : -front.z };
+}
+
+export function oppositeRackOrientation(orientation: RackOrientation): RackOrientation {
+  switch (orientation) {
+    case "front-positive-z":
+      return "front-negative-z";
+    case "front-negative-z":
+      return "front-positive-z";
+    case "front-positive-x":
+      return "front-negative-x";
+    case "front-negative-x":
+      return "front-positive-x";
+  }
+}
+
+export function detectAisles(scenario: Pick<Scenario, "room" | "racks">): DetectedAisle[] {
+  const candidates: DetectedAisle[] = [];
+  for (let a = 0; a < scenario.racks.length; a += 1) {
+    for (let b = a + 1; b < scenario.racks.length; b += 1) {
+      const aisle = detectAisleBetweenRacks(scenario.racks[a], scenario.racks[b], scenario.room);
+      if (aisle) candidates.push(aisle);
+    }
+  }
+  return mergeAisleCandidates(candidates, scenario.room);
+}
+
+function detectAisleBetweenRacks(rackA: Rack, rackB: Rack, room: Room): DetectedAisle | undefined {
+  const frontA = rackFrontVector(rackA);
+  const frontB = rackFrontVector(rackB);
+  const parallel = Math.abs(dot2(frontA, frontB));
+  if (parallel < 0.96) return undefined;
+
+  const between = { x: rackB.position.x - rackA.position.x, y: 0, z: rackB.position.z - rackA.position.z };
+  const distance = Math.hypot(between.x, between.z);
+  if (distance < 0.6 || distance > 4.2) return undefined;
+  const direction = { x: between.x / distance, y: 0, z: between.z / distance };
+  const axis: AisleAxis = Math.abs(direction.x) > Math.abs(direction.z) ? "x" : "z";
+  const separation = Math.abs(axis === "x" ? between.x : between.z);
+  const averageRackDepth = (rackA.size.depth + rackB.size.depth) / 2;
+  const clearAisle = separation - averageRackDepth;
+  if (clearAisle < 0.35 || clearAisle > 3.2) return undefined;
+
+  const lateralOverlap = axis === "x"
+    ? overlapAmount(rackA.position.z, rackA.size.depth, rackB.position.z, rackB.size.depth)
+    : overlapAmount(rackA.position.x, rackA.size.width, rackB.position.x, rackB.size.width);
+  if (lateralOverlap < Math.min(rackA.size.width, rackB.size.width) * 0.35) return undefined;
+
+  const aFrontFacesB = dot2(frontA, direction) > 0.62;
+  const bFrontFacesA = dot2(frontB, { x: -direction.x, y: 0, z: -direction.z }) > 0.62;
+  const aRearFacesB = dot2(rackRearVector(rackA), direction) > 0.62;
+  const bRearFacesA = dot2(rackRearVector(rackB), { x: -direction.x, y: 0, z: -direction.z }) > 0.62;
+
+  const type: AisleType | undefined = aFrontFacesB && bFrontFacesA ? "cold" : aRearFacesB && bRearFacesA ? "hot" : undefined;
+  if (!type) return undefined;
+  const relation: AisleRelation = type === "cold" ? "face-to-face" : "back-to-back";
+  const minX = Math.min(rackA.position.x - rackA.size.width / 2, rackB.position.x - rackB.size.width / 2);
+  const maxX = Math.max(rackA.position.x + rackA.size.width / 2, rackB.position.x + rackB.size.width / 2);
+  const minZ = Math.min(rackA.position.z - rackA.size.depth / 2, rackB.position.z - rackB.size.depth / 2);
+  const maxZ = Math.max(rackA.position.z + rackA.size.depth / 2, rackB.position.z + rackB.size.depth / 2);
+  const center = {
+    x: (rackA.position.x + rackB.position.x) / 2,
+    y: Math.min(1.35, room.height / 2),
+    z: (rackA.position.z + rackB.position.z) / 2
+  };
+  const size =
+    axis === "x"
+      ? { width: Math.max(0.4, clearAisle), depth: Math.max(lateralOverlap, Math.min(rackA.size.depth, rackB.size.depth)), height: Math.min(2.7, room.height) }
+      : { width: Math.max(lateralOverlap, Math.min(rackA.size.width, rackB.size.width)), depth: Math.max(0.4, clearAisle), height: Math.min(2.7, room.height) };
+
+  return {
+    id: `aisle-${type}-${rackA.id}-${rackB.id}`,
+    type,
+    relation,
+    axis,
+    center,
+    size,
+    rackIds: [rackA.id, rackB.id],
+    confidence: 0.82,
+    label: `${type === "hot" ? "Hot" : "Cold"} aisle suggestion`,
+    // Preserve the full span for later merging without expanding the public type.
+    ...(axis === "x" ? { _spanMin: minZ, _spanMax: maxZ } : { _spanMin: minX, _spanMax: maxX })
+  } as DetectedAisle;
+}
+
+function mergeAisleCandidates(candidates: DetectedAisle[], room: Room): DetectedAisle[] {
+  const groups: DetectedAisle[] = [];
+  for (const candidate of candidates) {
+    const existing = groups.find(
+      (group) =>
+        group.type === candidate.type &&
+        group.relation === candidate.relation &&
+        group.axis === candidate.axis &&
+        Math.abs((group.axis === "x" ? group.center.x : group.center.z) - (candidate.axis === "x" ? candidate.center.x : candidate.center.z)) < 0.75
+    );
+    if (!existing) {
+      groups.push({ ...candidate });
+      continue;
+    }
+    const rackIds = [...new Set([...existing.rackIds, ...candidate.rackIds])];
+    const minX = Math.min(existing.center.x - existing.size.width / 2, candidate.center.x - candidate.size.width / 2);
+    const maxX = Math.max(existing.center.x + existing.size.width / 2, candidate.center.x + candidate.size.width / 2);
+    const minZ = Math.min(existing.center.z - existing.size.depth / 2, candidate.center.z - candidate.size.depth / 2);
+    const maxZ = Math.max(existing.center.z + existing.size.depth / 2, candidate.center.z + candidate.size.depth / 2);
+    existing.center = { x: (minX + maxX) / 2, y: Math.min(1.35, room.height / 2), z: (minZ + maxZ) / 2 };
+    existing.size = { width: Math.max(0.4, maxX - minX), depth: Math.max(0.4, maxZ - minZ), height: Math.min(2.7, room.height) };
+    existing.rackIds = rackIds;
+    existing.confidence = Math.min(0.94, existing.confidence + 0.03);
+  }
+  return groups.map((group, index) => ({
+    ...group,
+    id: `aisle-${group.type}-${index + 1}`,
+    label: `${group.type === "hot" ? "Hot" : "Cold"} aisle ${index + 1}`
+  }));
+}
+
+function overlapAmount(centerA: number, sizeA: number, centerB: number, sizeB: number): number {
+  const minA = centerA - sizeA / 2;
+  const maxA = centerA + sizeA / 2;
+  const minB = centerB - sizeB / 2;
+  const maxB = centerB + sizeB / 2;
+  return Math.max(0, Math.min(maxA, maxB) - Math.max(minA, minB));
+}
+
+function dot2(a: Vector3, b: Vector3): number {
+  return a.x * b.x + a.z * b.z;
 }
 
 export function rackFootprint(rack: Rack): { minX: number; maxX: number; minZ: number; maxZ: number; minY: number; maxY: number } {

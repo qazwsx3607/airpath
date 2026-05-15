@@ -10,11 +10,13 @@ import {
   type Vector3,
   generateRackArray,
   isReturnObject,
-  orientationVector
+  orientationVector,
+  rackRearVector
 } from "@airpath/scenario-schema";
 import { cellCenter, sampleVectorField, type SimulationResult, type SimulationWarning, type SimulationWarningSeverity } from "@airpath/solver-core";
 import { useAirPathStore, type SliceAxis, type ViewMode } from "../store";
 import { localizeWarningLabel } from "../i18n";
+import { resolveThermalScale, temperatureToColor, type ThermalDisplaySettings } from "../thermalPalette";
 
 export function Viewport3D() {
   const scenario = useAirPathStore((state) => state.scenario);
@@ -39,6 +41,14 @@ export function Viewport3D() {
   const particleSpeed = useAirPathStore((state) => state.particleSpeed);
   const airflowOpacity = useAirPathStore((state) => state.airflowOpacity);
   const thermalOpacity = useAirPathStore((state) => state.thermalOpacity);
+  const thermalPalette = useAirPathStore((state) => state.thermalPalette);
+  const thermalColorMode = useAirPathStore((state) => state.thermalColorMode);
+  const thermalScaleMode = useAirPathStore((state) => state.thermalScaleMode);
+  const thermalMinC = useAirPathStore((state) => state.thermalMinC);
+  const thermalMaxC = useAirPathStore((state) => state.thermalMaxC);
+  const thermalCriticalC = useAirPathStore((state) => state.thermalCriticalC);
+  const thermalContrast = useAirPathStore((state) => state.thermalContrast);
+  const colorbarPosition = useAirPathStore((state) => state.colorbarPosition);
   const sliceAxis = useAirPathStore((state) => state.sliceAxis);
   const slicePosition = useAirPathStore((state) => state.slicePosition);
   const focusWarning = useAirPathStore((state) => state.focusWarning);
@@ -148,7 +158,26 @@ export function Viewport3D() {
       <directionalLight position={[scenario.room.width * 0.4, scenario.room.height * 2, scenario.room.depth * 0.25]} intensity={1.5} castShadow />
       <Room room={scenario.room} showGrid={showGrid} />
       {showDimensions && <RoomDimensions room={scenario.room} language={language} />}
-      {showThermal && <ThermalSlice result={result} opacity={thermalOpacity} axis={sliceAxis} positionRatio={slicePosition} language={language} />}
+      {showThermal && (
+        <ThermalSlice
+          result={result}
+          opacity={thermalOpacity}
+          axis={sliceAxis}
+          positionRatio={slicePosition}
+          language={language}
+          thermalSettings={{
+            palette: thermalPalette,
+            colorMode: thermalColorMode,
+            scaleMode: thermalScaleMode,
+            minC: thermalMinC,
+            maxC: thermalMaxC,
+            criticalC: thermalCriticalC,
+            contrast: thermalContrast,
+            opacity: thermalOpacity,
+            colorbarPosition
+          }}
+        />
+      )}
       {scenario.racks.map((rack) => (
         <RackMesh
           key={rack.id}
@@ -291,6 +320,7 @@ function RackMesh({
   onViewportDragEnd: (event: ThreeEvent<PointerEvent>) => void;
 }) {
   const front = orientationVector(rack.orientation);
+  const rear = rackRearVector(rack);
   const riskColor = thermalColor(inletTemp ?? 24, 24, 27, 32);
   const rackColor = thermalTint ? riskColor : "#334155";
   const markerPosition: [number, number, number] = [
@@ -300,6 +330,13 @@ function RackMesh({
   ];
   const markerSize: [number, number, number] =
     Math.abs(front.x) > 0 ? [0.03, rack.size.height * 0.78, rack.size.depth * 0.55] : [rack.size.width * 0.55, rack.size.height * 0.78, 0.03];
+  const rearMarkerPosition: [number, number, number] = [
+    rear.x * (rack.size.width / 2 + 0.014),
+    0,
+    rear.z * (rack.size.depth / 2 + 0.014)
+  ];
+  const rearMarkerSize: [number, number, number] =
+    Math.abs(rear.x) > 0 ? [0.026, rack.size.height * 0.68, rack.size.depth * 0.42] : [rack.size.width * 0.42, rack.size.height * 0.68, 0.026];
 
   return (
     <group
@@ -323,6 +360,10 @@ function RackMesh({
       <mesh position={markerPosition}>
         <boxGeometry args={markerSize} />
         <meshStandardMaterial color="#38BDF8" emissive="#38BDF8" emissiveIntensity={0.18} />
+      </mesh>
+      <mesh position={rearMarkerPosition}>
+        <boxGeometry args={rearMarkerSize} />
+        <meshStandardMaterial color="#F97316" emissive="#F97316" emissiveIntensity={0.16} />
       </mesh>
       {showLabel && (
         <Html position={[0, rack.size.height / 2 + 0.22, 0]} center>
@@ -439,58 +480,47 @@ function ThermalSlice({
   opacity,
   axis,
   positionRatio,
-  language
+  language,
+  thermalSettings
 }: {
   result: SimulationResult;
   opacity: number;
   axis: SliceAxis;
   positionRatio: number;
   language: "en" | "zh";
+  thermalSettings: ThermalDisplaySettings;
 }) {
   const slice = useMemo(() => buildThermalSlice(result, axis, positionRatio), [axis, positionRatio, result]);
   const texture = useMemo(() => {
-    const data = new Uint8Array(slice.widthCells * slice.heightCells);
-    const low = result.settings.ambientTemperatureC - 3;
-    const high = result.settings.criticalTemperatureC + 8;
+    const data = new Uint8Array(slice.widthCells * slice.heightCells * 4);
+    const scale = resolveThermalScale(result.temperatureFieldC, thermalSettings, result.settings.ambientTemperatureC, result.settings.criticalTemperatureC);
     for (let i = 0; i < slice.values.length; i += 1) {
-      data[i] = Math.round(clamp((slice.values[i] - low) / (high - low), 0, 1) * 255);
+      const color = temperatureToColor(slice.values[i], scale, thermalSettings);
+      data[i * 4] = color.r;
+      data[i * 4 + 1] = color.g;
+      data[i * 4 + 2] = color.b;
+      data[i * 4 + 3] = Math.round(clamp(opacity * 255, 42, 242));
     }
-    const map = new THREE.DataTexture(data, slice.widthCells, slice.heightCells, THREE.RedFormat, THREE.UnsignedByteType);
+    const map = new THREE.DataTexture(data, slice.widthCells, slice.heightCells, THREE.RGBAFormat, THREE.UnsignedByteType);
     map.needsUpdate = true;
     map.magFilter = THREE.NearestFilter;
     map.minFilter = THREE.NearestFilter;
     map.wrapS = THREE.ClampToEdgeWrapping;
     map.wrapT = THREE.ClampToEdgeWrapping;
     return map;
-  }, [result.settings.ambientTemperatureC, result.settings.criticalTemperatureC, slice.heightCells, slice.values, slice.widthCells]);
+  }, [opacity, result.settings.ambientTemperatureC, result.settings.criticalTemperatureC, result.temperatureFieldC, slice.heightCells, slice.values, slice.widthCells, thermalSettings]);
 
   return (
     <group>
       <mesh position={slice.position} rotation={slice.rotation} data-testid="shader-heatmap">
         <planeGeometry args={[slice.widthM, slice.heightM, 1, 1]} />
-        <shaderMaterial
-          transparent
-          depthWrite={false}
-          uniforms={{
-            uTemperature: { value: texture },
-            uOpacity: { value: opacity }
-          }}
-          vertexShader={thermalVertexShader}
-          fragmentShader={thermalFragmentShader}
-        />
+        <meshBasicMaterial map={texture} transparent opacity={1} depthWrite={false} side={THREE.DoubleSide} />
         <Edges color="#E5EDF5" />
       </mesh>
       <Html position={slice.labelPosition} center transform={false} style={{ pointerEvents: "none" }}>
         <div className="slice-label" data-testid="slice-plane">
           <strong>{axis.toUpperCase()}</strong>
           <span>{language === "zh" ? "切片" : "slice"} @ {slice.metricM.toFixed(2)} m</span>
-        </div>
-      </Html>
-      <Html position={[0.7, 0.15, 0.7]} transform={false} style={{ pointerEvents: "none" }}>
-        <div className="heat-legend" data-testid="heat-legend">
-          <strong>{language === "zh" ? "熱場切片 C" : "Thermal slice C"}</strong>
-          <span className="legend-bar" />
-          <small className="legend-readable">{language === "zh" ? "冷 - 中性 - 溫 - 熱 - 嚴重" : "Cold - Neutral - Warm - Hot - Critical"}</small>
         </div>
       </Html>
     </group>

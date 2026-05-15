@@ -231,9 +231,19 @@ function Inspector() {
 function Results() {
   const language = useAirPathStore((state) => state.language);
   const result = useAirPathStore((state) => state.result);
+  const runStatus = useAirPathStore((state) => state.runStatus);
+  const simulationRunId = useAirPathStore((state) => state.simulationRunId);
+  const lastRunAt = useAirPathStore((state) => state.lastRunAt);
+  const lastRunElapsedMs = useAirPathStore((state) => state.lastRunElapsedMs);
+  const resultsStale = useAirPathStore((state) => state.resultsStale);
   return (
     <section className="panel-section" data-testid="results-panel">
       <h2>{t(language, "simulationResults")}</h2>
+      <div className={`simulation-trust-card ${runStatus}`} data-testid="simulation-trust-card">
+        <strong>{resultsStale ? "Results are outdated. Run simulation again." : `Formal run #${simulationRunId} ${runStatus}`}</strong>
+        <span>{lastRunAt ? new Date(lastRunAt).toLocaleString() : "No formal run recorded"}</span>
+        <span>{lastRunElapsedMs ? `${lastRunElapsedMs.toFixed(1)} ms elapsed` : "Elapsed time pending"}</span>
+      </div>
       <div className="result-grid">
         <Metric label={t(language, "maxRackInlet")} value={`${result.metrics.maxRackInletTemperatureC.toFixed(1)} C`} />
         <Metric label={t(language, "averageInlet")} value={`${result.metrics.averageRackInletTemperatureC.toFixed(1)} C`} />

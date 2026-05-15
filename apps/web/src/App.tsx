@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useMemo } from "react";
 import {
   AlertTriangle,
   Boxes,
@@ -22,11 +22,13 @@ import {
   Wind
 } from "lucide-react";
 import { LeftPanel } from "./components/LeftPanel";
+import { PlanView } from "./components/PlanView";
 import { RightPanel } from "./components/RightPanel";
 import { ScenarioBar } from "./components/ScenarioBar";
 import { localizeSampleLabel, t } from "./i18n";
 import { generateReportWithViewportScreenshots } from "./reportCapture";
 import { useAirPathStore, type ViewMode } from "./store";
+import { resolveThermalScale, thermalGradientCss, thermalGradientCssVertical, thermalPalettes, thermalTicks } from "./thermalPalette";
 
 const Viewport3D = lazy(() => import("./components/Viewport3D").then((module) => ({ default: module.Viewport3D })));
 
@@ -44,6 +46,8 @@ export function App() {
   const result = useAirPathStore((state) => state.result);
   const viewMode = useAirPathStore((state) => state.viewMode);
   const setViewMode = useAirPathStore((state) => state.setViewMode);
+  const workspaceMode = useAirPathStore((state) => state.workspaceMode);
+  const setWorkspaceMode = useAirPathStore((state) => state.setWorkspaceMode);
   const language = useAirPathStore((state) => state.language);
   const setLanguage = useAirPathStore((state) => state.setLanguage);
   const editMode = useAirPathStore((state) => state.editMode);
@@ -75,6 +79,20 @@ export function App() {
   const toggleGrid = useAirPathStore((state) => state.toggleGrid);
   const historyPast = useAirPathStore((state) => state.historyPast);
   const historyFuture = useAirPathStore((state) => state.historyFuture);
+  const runStatus = useAirPathStore((state) => state.runStatus);
+  const simulationRunId = useAirPathStore((state) => state.simulationRunId);
+  const lastRunAt = useAirPathStore((state) => state.lastRunAt);
+  const lastRunElapsedMs = useAirPathStore((state) => state.lastRunElapsedMs);
+  const resultsStale = useAirPathStore((state) => state.resultsStale);
+  const thermalPalette = useAirPathStore((state) => state.thermalPalette);
+  const thermalColorMode = useAirPathStore((state) => state.thermalColorMode);
+  const thermalScaleMode = useAirPathStore((state) => state.thermalScaleMode);
+  const thermalMinC = useAirPathStore((state) => state.thermalMinC);
+  const thermalMaxC = useAirPathStore((state) => state.thermalMaxC);
+  const thermalCriticalC = useAirPathStore((state) => state.thermalCriticalC);
+  const thermalContrast = useAirPathStore((state) => state.thermalContrast);
+  const thermalOpacity = useAirPathStore((state) => state.thermalOpacity);
+  const colorbarPosition = useAirPathStore((state) => state.colorbarPosition);
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
@@ -140,7 +158,16 @@ export function App() {
           </select>
         </label>
 
-        <div className="segmented" aria-label="View mode selector">
+        <div className="segmented workspace-switch" aria-label="Workspace mode selector">
+          <button type="button" className={workspaceMode === "three" ? "active" : ""} onClick={() => setWorkspaceMode("three")} data-testid="workspace-3d">
+            3D
+          </button>
+          <button type="button" className={workspaceMode === "plan" ? "active" : ""} onClick={() => setWorkspaceMode("plan")} data-testid="workspace-plan">
+            Plan
+          </button>
+        </div>
+
+        <div className="segmented view-switch" aria-label="View mode selector">
           {viewModes.map((mode) => (
             <button
               key={mode.key}
@@ -246,10 +273,14 @@ export function App() {
 
       <main className={`workspace ${leftCollapsed ? "left-collapsed" : ""} ${rightCollapsed ? "right-collapsed" : ""}`}>
         <LeftPanel />
-        <section className="viewport-wrap" aria-label="3D viewport">
-          <Suspense fallback={<div className="viewport-loading">Loading 3D viewport</div>}>
-            <Viewport3D />
-          </Suspense>
+        <section className={`viewport-wrap ${workspaceMode === "plan" ? "plan-active" : ""}`} aria-label={workspaceMode === "plan" ? "Plan layout viewport" : "3D viewport"}>
+          {workspaceMode === "plan" ? (
+            <PlanView />
+          ) : (
+            <Suspense fallback={<div className="viewport-loading">Loading 3D viewport</div>}>
+              <Viewport3D />
+            </Suspense>
+          )}
           <div className="viewport-metrics" data-testid="viewport-metrics">
             <span>{language === "zh" ? "最高" : "Max inlet"} {result.metrics.maxRackInletTemperatureC.toFixed(1)} C</span>
             <span>{language === "zh" ? "平均" : "Avg"} {result.metrics.averageRackInletTemperatureC.toFixed(1)} C</span>
@@ -257,7 +288,15 @@ export function App() {
               <AlertTriangle size={14} aria-hidden="true" />
               {result.metrics.warningCount} {t(language, "warnings")}
             </span>
+            <span className={`run-status ${runStatus}`} data-testid="run-status">
+              Run #{simulationRunId} {runStatus}
+            </span>
           </div>
+          {resultsStale && (
+            <div className="stale-banner" data-testid="stale-banner">
+              Results are outdated. Run simulation again.
+            </div>
+          )}
           <div className="viewport-tools" data-testid="viewport-tools">
             <div className="viewport-tool-group">
               <span>{t(language, "editMode")}</span>
@@ -305,11 +344,89 @@ export function App() {
           <div className="viewport-footer">
             <Grid3X3 size={14} aria-hidden="true" />
             {t(language, "statusFooter")}
+            <span data-testid="simulation-run-id">Formal run #{simulationRunId}</span>
+            <span data-testid="last-run-time">{lastRunAt ? new Date(lastRunAt).toLocaleTimeString() : "Not run"}</span>
+            <span data-testid="last-run-elapsed">{lastRunElapsedMs ? `${lastRunElapsedMs.toFixed(1)} ms` : "-"}</span>
           </div>
+          {workspaceMode === "three" && showHeatmapLayer && colorbarPosition !== "hidden" && (viewMode === "thermal" || viewMode === "combined" || viewMode === "slice") && (
+            <ThermalColorbar
+              palette={thermalPalette}
+              colorMode={thermalColorMode}
+              scaleMode={thermalScaleMode}
+              minC={thermalMinC}
+              maxC={thermalMaxC}
+              criticalC={thermalCriticalC}
+              contrast={thermalContrast}
+              opacity={thermalOpacity}
+              colorbarPosition={colorbarPosition}
+              values={result.temperatureFieldC}
+              fallbackAmbientC={result.settings.ambientTemperatureC}
+              fallbackCriticalC={result.settings.criticalTemperatureC}
+            />
+          )}
         </section>
         <RightPanel />
       </main>
       <ScenarioBar />
+    </div>
+  );
+}
+
+function ThermalColorbar({
+  palette,
+  colorMode,
+  scaleMode,
+  minC,
+  maxC,
+  criticalC,
+  contrast,
+  opacity,
+  colorbarPosition,
+  values,
+  fallbackAmbientC,
+  fallbackCriticalC
+}: {
+  palette: Parameters<typeof thermalGradientCss>[0];
+  colorMode: "smooth" | "stepped";
+  scaleMode: "auto" | "manual";
+  minC: number;
+  maxC: number;
+  criticalC: number;
+  contrast: number;
+  opacity: number;
+  colorbarPosition: "bottom" | "right" | "hidden";
+  values: number[];
+  fallbackAmbientC: number;
+  fallbackCriticalC: number;
+}) {
+  const scale = useMemo(
+    () =>
+      resolveThermalScale(
+        values,
+        { palette, colorMode, scaleMode, minC, maxC, criticalC, contrast, opacity, colorbarPosition },
+        fallbackAmbientC,
+        fallbackCriticalC
+      ),
+    [colorMode, colorbarPosition, contrast, criticalC, fallbackAmbientC, fallbackCriticalC, maxC, minC, opacity, palette, scaleMode, values]
+  );
+  const ticks = thermalTicks(scale, colorbarPosition === "right" ? 6 : 5);
+  const stepped = colorMode === "stepped";
+  const gradient = colorbarPosition === "right" ? thermalGradientCssVertical(palette, stepped) : thermalGradientCss(palette, stepped);
+  const thresholdOffset = `${Math.max(0, Math.min(100, ((scale.criticalC - scale.minC) / Math.max(0.1, scale.maxC - scale.minC)) * 100))}%`;
+  return (
+    <div className={`thermal-colorbar ${colorbarPosition}`} data-testid={`thermal-colorbar-${colorbarPosition}`}>
+      <div className="thermal-colorbar-head">
+        <strong>Temperature (C)</strong>
+        <span>{thermalPalettes[palette].name} · {scale.mode === "manual" ? "Manual" : "Auto"} · {stepped ? "Stepped" : "Smooth"}</span>
+      </div>
+      <div className="thermal-colorbar-track" style={{ background: gradient }}>
+        <span className="thermal-threshold" style={colorbarPosition === "right" ? { bottom: thresholdOffset } : { left: thresholdOffset }} />
+      </div>
+      <div className="thermal-colorbar-ticks">
+        {ticks.map((tick) => (
+          <span key={tick.toFixed(2)}>{tick.toFixed(1)} C</span>
+        ))}
+      </div>
     </div>
   );
 }

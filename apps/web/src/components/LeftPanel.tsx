@@ -22,7 +22,15 @@ import {
   type RoomTemplateKey
 } from "@airpath/scenario-schema";
 import { t } from "../i18n";
-import { useAirPathStore, type SliceAxis, type WizardStep } from "../store";
+import {
+  useAirPathStore,
+  type ColorbarPosition,
+  type SliceAxis,
+  type ThermalColorMode,
+  type ThermalPaletteKey,
+  type ThermalScaleMode,
+  type WizardStep
+} from "../store";
 
 const steps: Array<{ key: WizardStep; labelKey: Parameters<typeof t>[1] }> = [
   { key: "room", labelKey: "room" },
@@ -72,12 +80,27 @@ export function LeftPanel() {
   const particleSpeed = useAirPathStore((state) => state.particleSpeed);
   const airflowOpacity = useAirPathStore((state) => state.airflowOpacity);
   const thermalOpacity = useAirPathStore((state) => state.thermalOpacity);
+  const thermalPalette = useAirPathStore((state) => state.thermalPalette);
+  const thermalColorMode = useAirPathStore((state) => state.thermalColorMode);
+  const thermalScaleMode = useAirPathStore((state) => state.thermalScaleMode);
+  const thermalMinC = useAirPathStore((state) => state.thermalMinC);
+  const thermalMaxC = useAirPathStore((state) => state.thermalMaxC);
+  const thermalCriticalC = useAirPathStore((state) => state.thermalCriticalC);
+  const thermalContrast = useAirPathStore((state) => state.thermalContrast);
+  const colorbarPosition = useAirPathStore((state) => state.colorbarPosition);
   const sliceAxis = useAirPathStore((state) => state.sliceAxis);
   const slicePosition = useAirPathStore((state) => state.slicePosition);
   const setParticleDensity = useAirPathStore((state) => state.setParticleDensity);
   const setParticleSpeed = useAirPathStore((state) => state.setParticleSpeed);
   const setAirflowOpacity = useAirPathStore((state) => state.setAirflowOpacity);
   const setThermalOpacity = useAirPathStore((state) => state.setThermalOpacity);
+  const setThermalPalette = useAirPathStore((state) => state.setThermalPalette);
+  const setThermalColorMode = useAirPathStore((state) => state.setThermalColorMode);
+  const setThermalScaleMode = useAirPathStore((state) => state.setThermalScaleMode);
+  const setThermalRange = useAirPathStore((state) => state.setThermalRange);
+  const setThermalCriticalC = useAirPathStore((state) => state.setThermalCriticalC);
+  const setThermalContrast = useAirPathStore((state) => state.setThermalContrast);
+  const setColorbarPosition = useAirPathStore((state) => state.setColorbarPosition);
   const setSliceAxis = useAirPathStore((state) => state.setSliceAxis);
   const setSlicePosition = useAirPathStore((state) => state.setSlicePosition);
 
@@ -291,6 +314,49 @@ export function LeftPanel() {
                 data-testid="thermal-opacity"
               />
             </label>
+            <details open>
+              <summary>Thermal palette and scale</summary>
+              <label>
+                Palette
+                <select value={thermalPalette} onChange={(event) => setThermalPalette(event.target.value as ThermalPaletteKey)} data-testid="thermal-palette">
+                  <option value="thermal-professional">Thermal Professional</option>
+                  <option value="cfd-classic">CFD Classic</option>
+                  <option value="high-contrast">High Contrast</option>
+                  <option value="dark-view">Dark View Optimized</option>
+                </select>
+              </label>
+              <div className="segmented compact" data-testid="thermal-color-mode">
+                {(["smooth", "stepped"] as ThermalColorMode[]).map((mode) => (
+                  <button key={mode} type="button" className={thermalColorMode === mode ? "active" : ""} onClick={() => setThermalColorMode(mode)} data-testid={`thermal-mode-${mode}`}>
+                    {mode === "smooth" ? "Smooth" : "Stepped"}
+                  </button>
+                ))}
+              </div>
+              <div className="segmented compact" data-testid="thermal-scale-mode">
+                {(["auto", "manual"] as ThermalScaleMode[]).map((mode) => (
+                  <button key={mode} type="button" className={thermalScaleMode === mode ? "active" : ""} onClick={() => setThermalScaleMode(mode)} data-testid={`thermal-scale-${mode}`}>
+                    {mode === "auto" ? "Auto scale" : "Manual"}
+                  </button>
+                ))}
+              </div>
+              <div className="form-grid three">
+                <NumberField label="Min" unit="C" value={thermalMinC} min={-10} max={80} step={0.5} testId="thermal-min" onChange={(value) => setThermalRange(value, thermalMaxC)} />
+                <NumberField label="Max" unit="C" value={thermalMaxC} min={-10} max={90} step={0.5} testId="thermal-max" onChange={(value) => setThermalRange(thermalMinC, value)} />
+                <NumberField label="Critical" unit="C" value={thermalCriticalC} min={0} max={90} step={0.5} testId="thermal-critical" onChange={setThermalCriticalC} />
+              </div>
+              <label>
+                Contrast ({thermalContrast.toFixed(2)}x)
+                <input type="range" min={0.7} max={1.8} step={0.05} value={thermalContrast} onChange={(event) => setThermalContrast(Number(event.target.value))} data-testid="thermal-contrast" />
+              </label>
+              <label>
+                Colorbar
+                <select value={colorbarPosition} onChange={(event) => setColorbarPosition(event.target.value as ColorbarPosition)} data-testid="colorbar-position">
+                  <option value="bottom">Bottom horizontal</option>
+                  <option value="right">Right vertical</option>
+                  <option value="hidden">Hidden</option>
+                </select>
+              </label>
+            </details>
             <details open>
               <summary>{t(language, "sliceControls")}</summary>
               <div className="segmented compact" data-testid="slice-axis-control">

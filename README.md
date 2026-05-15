@@ -29,7 +29,14 @@ It is designed to support:
 - Cold aisle and hot aisle containment
 - 3D airflow particle lines / streamlines
 - Thermal heatmaps
+- Plan View for CAD-like top-down layout editing
+- Box selection, group move, mirror row tools, and rack-to-in-row-cooling conversion
+- Rack front/rear inlet/exhaust indicators
+- Hot/cold aisle auto-detection and containment generation helpers
+- Formal simulation run status, run id, timestamp, elapsed time, and stale-result detection
 - Horizontal / vertical thermal slice controls
+- Slice heatmap driven by the simulation temperature field
+- Thermal palettes, smooth/stepped bands, manual range, critical threshold, opacity/contrast controls, and fixed screen-space colorbar
 - Visual layer controls for grid, labels, warnings, airflow, heatmap, slice, and dimensions
 - Rack inlet temperature estimates
 - Hotspot warnings
@@ -135,7 +142,7 @@ The first AirPath build uses the requested monorepo layers:
 - `packages/report-engine` - report data generation, HTML report rendering, print-to-PDF styling, assumptions, and disclaimer.
 - `examples/scenarios` - five sample `.airpath.json` scenarios for import, validation, and demos.
 
-The current web app includes lock/select/move manipulation modes, undo/redo, layer controls, smoother vector-field streamlines, XZ/XY/YZ thermal slices, report metadata editing, and English/Chinese switching. Simulation and report language remains bounded by `MODEL_ASSUMPTIONS.md`: results are conceptual pre-sales risk indicators, not certified CFD.
+The current web app includes lock/select/move manipulation modes, undo/redo, Plan View layout authoring, box selection, group move, mirror workflows, rack-to-in-row conversion, rack front/rear indicators, hot/cold aisle detection, layer controls, smoother vector-field streamlines, XZ/XY/YZ thermal slices with shared palette/range controls, fixed screen-space thermal colorbars, report metadata editing, and English/Chinese switching. Simulation and report language remains bounded by `MODEL_ASSUMPTIONS.md`: results are conceptual pre-sales risk indicators, not certified CFD.
 
 ## Local Development
 

@@ -290,10 +290,11 @@ function estimateRackInlet(
   settings: SimulationSettings
 ): RackInletResult {
   const front = orientationVector(rack.orientation);
+  const offset = rackFaceOffset(rack, front);
   const samplePoint = {
-    x: rack.position.x + front.x * (rack.size.depth / 2 + 0.35),
+    x: rack.position.x + front.x * (offset + 0.35),
     y: Math.min(rack.size.height * 0.55, rack.position.y + 0.25),
-    z: rack.position.z + front.z * (rack.size.depth / 2 + 0.35)
+    z: rack.position.z + front.z * (offset + 0.35)
   };
   const temperature = sampleTemperatureField(temperatureFieldC, grid, samplePoint);
   const localVector = sampleVectorField(vectorField, grid, samplePoint);
@@ -523,11 +524,16 @@ function returnPosition(object: CoolingObject, roomHeight: number): Vector3 {
 
 function rackHotExhaustPoint(rack: Rack): Vector3 {
   const exhaust = scale(orientationVector(rack.orientation), -1);
+  const offset = rackFaceOffset(rack, exhaust);
   return {
-    x: rack.position.x + exhaust.x * (rack.size.depth / 2 + 0.2),
+    x: rack.position.x + exhaust.x * (offset + 0.2),
     y: rack.size.height * 0.62,
-    z: rack.position.z + exhaust.z * (rack.size.depth / 2 + 0.2)
+    z: rack.position.z + exhaust.z * (offset + 0.2)
   };
+}
+
+function rackFaceOffset(rack: Rack, direction: Vector3): number {
+  return Math.abs(direction.x) > Math.abs(direction.z) ? rack.size.width / 2 : rack.size.depth / 2;
 }
 
 function rackExhaustVector(rack: Rack): Vector3 {
