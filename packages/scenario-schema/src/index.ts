@@ -37,6 +37,16 @@ export const RackCoolingModeSchema = z.enum(["air-cooled", "hybrid-liquid-cooled
 
 export const HeatLoadModeSchema = z.enum(["per-rack", "total-array", "mixed-custom"]);
 
+export const RowModuleTypeSchema = z.enum(["rack", "in-row-cooling", "empty"]);
+
+export const ModuleSideSchema = z.enum(["front", "rear", "left", "right", "top", "bottom"]);
+
+export const InRowCoolingModeSchema = z.enum([
+  "hot-side-return-cold-side-supply",
+  "contained-hot-aisle-local",
+  "custom"
+]);
+
 export const RackSchema = z.object({
   id: z.string(),
   arrayId: z.string().optional(),
@@ -87,6 +97,13 @@ export const CoolingObjectSchema = z.object({
   position: Vector3Schema,
   size: Size3Schema,
   direction: Vector3Schema,
+  orientation: RackOrientationSchema.optional(),
+  rowId: z.string().optional(),
+  slotIndex: z.number().int().nonnegative().optional(),
+  rowModuleType: RowModuleTypeSchema.optional(),
+  intakeSide: ModuleSideSchema.optional(),
+  supplySide: ModuleSideSchema.optional(),
+  coolingModeSemantic: InRowCoolingModeSchema.optional(),
   supplyTemperatureC: z.number(),
   airflowLps: z.number().nonnegative(),
   coolingCapacityKw: z.number().nonnegative(),
@@ -183,6 +200,9 @@ export type Rack = z.infer<typeof RackSchema>;
 export type RackArrayInput = z.infer<typeof RackArrayInputSchema>;
 export type RackOrientation = z.infer<typeof RackOrientationSchema>;
 export type RackCoolingMode = z.infer<typeof RackCoolingModeSchema>;
+export type RowModuleType = z.infer<typeof RowModuleTypeSchema>;
+export type ModuleSide = z.infer<typeof ModuleSideSchema>;
+export type InRowCoolingMode = z.infer<typeof InRowCoolingModeSchema>;
 export type CoolingObject = z.infer<typeof CoolingObjectSchema>;
 export type CoolingObjectType = z.infer<typeof CoolingObjectTypeSchema>;
 export type ContainmentObject = z.infer<typeof ContainmentObjectSchema>;
@@ -197,6 +217,16 @@ export type RoomTemplateKey = "small" | "medium" | "large" | "custom";
 export type AisleType = "hot" | "cold";
 export type AisleRelation = "back-to-back" | "face-to-face";
 export type AisleAxis = "x" | "z";
+export type ThermalZoneType = "hot-aisle" | "cold-aisle" | "contained-hot-aisle" | "contained-cold-aisle";
+export type ThermalZoneContainmentState = "open" | "contained";
+export type TopologyWarningSeverity = "info" | "warning" | "critical";
+export type TopologyWarningType =
+  | "ambiguous-aisle-orientation"
+  | "inrow-intake-mismatch"
+  | "contained-zone-no-sink"
+  | "rack-exhaust-unzoned"
+  | "thermal-zone-missing"
+  | "hot-aisle-interrupted";
 
 export interface DetectedAisle {
   id: string;
@@ -206,8 +236,84 @@ export interface DetectedAisle {
   center: Vector3;
   size: Size3;
   rackIds: string[];
+  moduleIds?: string[];
+  rowIds?: string[];
   confidence: number;
   label: string;
+}
+
+export interface RowModule {
+  id: string;
+  sourceId: string;
+  type: RowModuleType;
+  position: Vector3;
+  size: Size3;
+  orientation: RackOrientation;
+  rowId: string;
+  slotIndex: number;
+  frontSide: Vector3;
+  rearSide: Vector3;
+  thermalRole: "rack-heat-source" | "in-row-cooling" | "reserved";
+  transformableType: "rack" | "cooling";
+}
+
+export interface RowGroup {
+  id: string;
+  axis: "x" | "z";
+  modules: RowModule[];
+  orientation: RackOrientation;
+  frontSide: Vector3;
+  rearSide: Vector3;
+  consistent: boolean;
+  bounds: RectBounds;
+}
+
+export interface RectBounds {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+export interface ThermalZone {
+  id: string;
+  type: ThermalZoneType;
+  aisleType: AisleType;
+  sourceAisleId: string;
+  center: Vector3;
+  size: Size3;
+  height: number;
+  floorBounds: RectBounds;
+  associatedRowIds: string[];
+  associatedModuleIds: string[];
+  containmentState: ThermalZoneContainmentState;
+  boundarySurfaces: Array<"left" | "right" | "top" | "end-a" | "end-b">;
+  allowedAirflowSourceIds: string[];
+  allowedAirflowSinkIds: string[];
+  visualStyle: {
+    color: string;
+    opacity: number;
+    outlineColor: string;
+  };
+}
+
+export interface TopologyWarning {
+  id: string;
+  type: TopologyWarningType;
+  severity: TopologyWarningSeverity;
+  label: string;
+  message: string;
+  suggestedMitigation: string;
+  objectIds: string[];
+  position: Vector3;
+}
+
+export interface ThermalTopology {
+  rowModules: RowModule[];
+  rowGroups: RowGroup[];
+  detectedAisles: DetectedAisle[];
+  thermalZones: ThermalZone[];
+  warnings: TopologyWarning[];
 }
 
 export const roomTemplates: Record<Exclude<RoomTemplateKey, "custom">, Room> = {
@@ -320,15 +426,448 @@ export function oppositeRackOrientation(orientation: RackOrientation): RackOrien
   }
 }
 
-export function detectAisles(scenario: Pick<Scenario, "room" | "racks">): DetectedAisle[] {
+export function analyzeThermalTopology(
+  scenario: Pick<Scenario, "room" | "racks"> & Partial<Pick<Scenario, "coolingObjects" | "containmentObjects">>
+): ThermalTopology {
+  const rowModules = buildRowModules(scenario);
+  const rowGroups = buildRowGroups(rowModules);
+  const detectedAisles = detectAislesFromRowGroups(rowGroups, scenario.room);
+  const thermalZones = buildThermalZones(scenario, detectedAisles, rowModules);
+  const warnings = buildTopologyWarnings(scenario, rowGroups, detectedAisles, thermalZones, rowModules);
+  return { rowModules, rowGroups, detectedAisles, thermalZones, warnings };
+}
+
+export function buildRowModules(
+  scenario: Pick<Scenario, "racks"> & Partial<Pick<Scenario, "coolingObjects">>
+): RowModule[] {
+  const rackModules: RowModule[] = scenario.racks.map((rack, index) => {
+    const identity = inferRackRowIdentity(rack, index);
+    const frontSide = rackFrontVector(rack);
+    return {
+      id: `module-${rack.id}`,
+      sourceId: rack.id,
+      type: "rack",
+      position: { ...rack.position },
+      size: { ...rack.size },
+      orientation: rack.orientation,
+      rowId: identity.rowId,
+      slotIndex: identity.slotIndex,
+      frontSide,
+      rearSide: rackRearVector(rack),
+      thermalRole: "rack-heat-source",
+      transformableType: "rack"
+    };
+  });
+
+  const coolingModules: RowModule[] = (scenario.coolingObjects ?? [])
+    .filter((object) => object.type === "in-row-cooler")
+    .map((object, index) => {
+      const orientation = object.orientation ?? orientationFromDirection(object.direction);
+      const identity = inferCoolingRowIdentity(object, orientation, index);
+      const frontSide = orientationVector(orientation);
+      return {
+        id: `module-${object.id}`,
+        sourceId: object.id,
+        type: "in-row-cooling",
+        position: { ...object.position },
+        size: { ...object.size },
+        orientation,
+        rowId: identity.rowId,
+        slotIndex: identity.slotIndex,
+        frontSide,
+        rearSide: { x: -frontSide.x, y: 0, z: -frontSide.z },
+        thermalRole: "in-row-cooling",
+        transformableType: "cooling"
+      };
+    });
+
+  return [...rackModules, ...coolingModules].sort((a, b) => a.rowId.localeCompare(b.rowId) || a.slotIndex - b.slotIndex);
+}
+
+export function buildRowGroups(rowModules: RowModule[]): RowGroup[] {
+  const byRow = new Map<string, RowModule[]>();
+  for (const module of rowModules) {
+    const modules = byRow.get(module.rowId) ?? [];
+    modules.push(module);
+    byRow.set(module.rowId, modules);
+  }
+
+  return [...byRow.entries()]
+    .map(([id, modules]) => {
+      const sorted = [...modules].sort((a, b) => a.slotIndex - b.slotIndex || a.position.x - b.position.x || a.position.z - b.position.z);
+      const orientation = dominantOrientation(sorted);
+      const frontSide = orientationVector(orientation);
+      const bounds = rectBoundsFromModules(sorted);
+      return {
+        id,
+        axis: rowAxisForOrientation(orientation),
+        modules: sorted,
+        orientation,
+        frontSide,
+        rearSide: { x: -frontSide.x, y: 0, z: -frontSide.z },
+        consistent: sorted.every((module) => Math.abs(dot2(module.frontSide, frontSide)) > 0.92),
+        bounds
+      } satisfies RowGroup;
+    })
+    .filter((group) => group.modules.length >= 1);
+}
+
+export function detectAislesFromTopology(
+  scenario: Pick<Scenario, "room" | "racks"> & Partial<Pick<Scenario, "coolingObjects">>
+): DetectedAisle[] {
+  return detectAislesFromRowGroups(buildRowGroups(buildRowModules(scenario)), scenario.room);
+}
+
+export function detectAisles(
+  scenario: Pick<Scenario, "room" | "racks"> & Partial<Pick<Scenario, "coolingObjects">>
+): DetectedAisle[] {
+  return detectAislesFromTopology(scenario);
+}
+
+export function buildThermalZones(
+  scenario: Pick<Scenario, "room" | "racks"> & Partial<Pick<Scenario, "coolingObjects" | "containmentObjects">>,
+  detectedAisles: DetectedAisle[] = detectAisles(scenario),
+  rowModules: RowModule[] = buildRowModules(scenario)
+): ThermalZone[] {
+  return detectedAisles.map((aisle, index) => {
+    const containment = findAisleContainment(aisle, scenario.containmentObjects ?? []);
+    const contained = Boolean(containment);
+    const height = Math.min(scenario.room.height, containment?.size.height ?? aisle.size.height ?? 2.7);
+    const floorBounds = rectBoundsFromCenterSize(aisle.center, aisle.size);
+    const associatedModuleIds = aisle.moduleIds ?? rowModules.filter((module) => aisle.rackIds.includes(module.sourceId)).map((module) => module.id);
+    const inRowSinkIds = (scenario.coolingObjects ?? [])
+      .filter((object) => object.enabled && (object.type === "in-row-cooler" || object.returnMode !== "none") && pointInsideOrNearBounds(object.position, floorBounds, 0.45))
+      .map((object) => object.id);
+    const returnSinkIds = (scenario.coolingObjects ?? [])
+      .filter((object) => object.enabled && object.type !== "in-row-cooler" && object.returnMode !== "none" && distance2d(object.position, aisle.center) <= 4.5)
+      .map((object) => object.id);
+    const type: ThermalZoneType =
+      aisle.type === "hot" ? (contained ? "contained-hot-aisle" : "hot-aisle") : contained ? "contained-cold-aisle" : "cold-aisle";
+    return {
+      id: `thermal-zone-${aisle.type}-${index + 1}`,
+      type,
+      aisleType: aisle.type,
+      sourceAisleId: aisle.id,
+      center: { x: aisle.center.x, y: height / 2, z: aisle.center.z },
+      size: { width: aisle.size.width, depth: aisle.size.depth, height },
+      height,
+      floorBounds,
+      associatedRowIds: aisle.rowIds ?? [],
+      associatedModuleIds,
+      containmentState: contained ? "contained" : "open",
+      boundarySurfaces: contained ? ["left", "right", "top", "end-a", "end-b"] : [],
+      allowedAirflowSourceIds:
+        aisle.type === "hot"
+          ? rowModules.filter((module) => associatedModuleIds.includes(module.id) && module.type === "rack").map((module) => module.sourceId)
+          : (scenario.coolingObjects ?? []).filter((object) => object.enabled && object.coolingCapacityKw > 0).map((object) => object.id),
+      allowedAirflowSinkIds: [...new Set([...inRowSinkIds, ...returnSinkIds])],
+      visualStyle:
+        aisle.type === "hot"
+          ? { color: "#F97316", opacity: contained ? 0.2 : 0.13, outlineColor: "#FDBA74" }
+          : { color: "#38BDF8", opacity: contained ? 0.18 : 0.12, outlineColor: "#7DD3FC" }
+    };
+  });
+}
+
+export function pointInThermalZone(point: Vector3, zone: ThermalZone): boolean {
+  return (
+    point.x >= zone.floorBounds.minX &&
+    point.x <= zone.floorBounds.maxX &&
+    point.z >= zone.floorBounds.minZ &&
+    point.z <= zone.floorBounds.maxZ &&
+    point.y >= 0 &&
+    point.y <= zone.height
+  );
+}
+
+export function clampPointToThermalZone(point: Vector3, zone: ThermalZone): Vector3 {
+  return {
+    x: clamp(point.x, zone.floorBounds.minX + 0.03, zone.floorBounds.maxX - 0.03),
+    y: clamp(point.y, 0.08, zone.height - 0.03),
+    z: clamp(point.z, zone.floorBounds.minZ + 0.03, zone.floorBounds.maxZ - 0.03)
+  };
+}
+
+function detectAislesFromRowGroups(rowGroups: RowGroup[], room: Room): DetectedAisle[] {
   const candidates: DetectedAisle[] = [];
-  for (let a = 0; a < scenario.racks.length; a += 1) {
-    for (let b = a + 1; b < scenario.racks.length; b += 1) {
-      const aisle = detectAisleBetweenRacks(scenario.racks[a], scenario.racks[b], scenario.room);
+  for (let a = 0; a < rowGroups.length; a += 1) {
+    for (let b = a + 1; b < rowGroups.length; b += 1) {
+      const aisle = detectAisleBetweenRows(rowGroups[a], rowGroups[b], room);
       if (aisle) candidates.push(aisle);
     }
   }
-  return mergeAisleCandidates(candidates, scenario.room);
+  return candidates.sort((a, b) => a.type.localeCompare(b.type) || a.center.x - b.center.x || a.center.z - b.center.z);
+}
+
+function detectAisleBetweenRows(rowA: RowGroup, rowB: RowGroup, room: Room): DetectedAisle | undefined {
+  if (!rowA.consistent || !rowB.consistent || rowA.axis !== rowB.axis) return undefined;
+  if (Math.abs(dot2(rowA.frontSide, rowB.frontSide)) < 0.96) return undefined;
+
+  const separationAxis: AisleAxis = rowA.axis === "x" ? "z" : "x";
+  const rowCenterA = centerOfBounds(rowA.bounds);
+  const rowCenterB = centerOfBounds(rowB.bounds);
+  const delta = separationAxis === "z" ? rowCenterB.z - rowCenterA.z : rowCenterB.x - rowCenterA.x;
+  const distance = Math.abs(delta);
+  if (distance < 0.6 || distance > 5.2) return undefined;
+  const direction: Vector3 = separationAxis === "z" ? { x: 0, y: 0, z: Math.sign(delta) || 1 } : { x: Math.sign(delta) || 1, y: 0, z: 0 };
+  const depthA = separationAxis === "z" ? rowA.bounds.maxZ - rowA.bounds.minZ : rowA.bounds.maxX - rowA.bounds.minX;
+  const depthB = separationAxis === "z" ? rowB.bounds.maxZ - rowB.bounds.minZ : rowB.bounds.maxX - rowB.bounds.minX;
+  const clearAisle = distance - (depthA + depthB) / 2;
+  if (clearAisle < 0.35 || clearAisle > 3.8) return undefined;
+
+  const rowOverlap =
+    rowA.axis === "x"
+      ? overlapAmount(rowA.bounds.minX + (rowA.bounds.maxX - rowA.bounds.minX) / 2, rowA.bounds.maxX - rowA.bounds.minX, rowB.bounds.minX + (rowB.bounds.maxX - rowB.bounds.minX) / 2, rowB.bounds.maxX - rowB.bounds.minX)
+      : overlapAmount(rowA.bounds.minZ + (rowA.bounds.maxZ - rowA.bounds.minZ) / 2, rowA.bounds.maxZ - rowA.bounds.minZ, rowB.bounds.minZ + (rowB.bounds.maxZ - rowB.bounds.minZ) / 2, rowB.bounds.maxZ - rowB.bounds.minZ);
+  if (rowOverlap < 0.45) return undefined;
+
+  const aFrontFacesB = dot2(rowA.frontSide, direction) > 0.62;
+  const bFrontFacesA = dot2(rowB.frontSide, { x: -direction.x, y: 0, z: -direction.z }) > 0.62;
+  const aRearFacesB = dot2(rowA.rearSide, direction) > 0.62;
+  const bRearFacesA = dot2(rowB.rearSide, { x: -direction.x, y: 0, z: -direction.z }) > 0.62;
+  const type: AisleType | undefined = aFrontFacesB && bFrontFacesA ? "cold" : aRearFacesB && bRearFacesA ? "hot" : undefined;
+  if (!type) return undefined;
+
+  const rowSpanMin =
+    rowA.axis === "x" ? Math.max(rowA.bounds.minX, rowB.bounds.minX) : Math.max(rowA.bounds.minZ, rowB.bounds.minZ);
+  const rowSpanMax =
+    rowA.axis === "x" ? Math.min(rowA.bounds.maxX, rowB.bounds.maxX) : Math.min(rowA.bounds.maxZ, rowB.bounds.maxZ);
+  const center =
+    separationAxis === "z"
+      ? { x: (rowSpanMin + rowSpanMax) / 2, y: Math.min(1.35, room.height / 2), z: (rowCenterA.z + rowCenterB.z) / 2 }
+      : { x: (rowCenterA.x + rowCenterB.x) / 2, y: Math.min(1.35, room.height / 2), z: (rowSpanMin + rowSpanMax) / 2 };
+  const size =
+    separationAxis === "z"
+      ? { width: Math.max(0.4, rowSpanMax - rowSpanMin), depth: Math.max(0.4, clearAisle), height: Math.min(2.7, room.height) }
+      : { width: Math.max(0.4, clearAisle), depth: Math.max(0.4, rowSpanMax - rowSpanMin), height: Math.min(2.7, room.height) };
+  const moduleIds = [...rowA.modules, ...rowB.modules].map((module) => module.id);
+  const objectIds = [...rowA.modules, ...rowB.modules].map((module) => module.sourceId);
+  return {
+    id: `aisle-${type}-${rowA.id}-${rowB.id}`,
+    type,
+    relation: type === "cold" ? "face-to-face" : "back-to-back",
+    axis: separationAxis,
+    center,
+    size,
+    rackIds: objectIds,
+    moduleIds,
+    rowIds: [rowA.id, rowB.id],
+    confidence: Math.min(0.96, 0.82 + Math.min(rowA.modules.length, rowB.modules.length) * 0.02),
+    label: `${type === "hot" ? "Hot" : "Cold"} aisle ${type === "hot" ? "thermal zone" : "supply zone"}`
+  };
+}
+
+function buildTopologyWarnings(
+  scenario: Pick<Scenario, "room" | "racks"> & Partial<Pick<Scenario, "coolingObjects" | "containmentObjects">>,
+  rowGroups: RowGroup[],
+  detectedAisles: DetectedAisle[],
+  thermalZones: ThermalZone[],
+  rowModules: RowModule[]
+): TopologyWarning[] {
+  const warnings: TopologyWarning[] = [];
+  for (const row of rowGroups) {
+    if (!row.consistent) {
+      warnings.push({
+        id: `topology-ambiguous-${row.id}`,
+        type: "ambiguous-aisle-orientation",
+        severity: "warning",
+        label: "Ambiguous aisle orientation",
+        message: "Aisle type cannot be determined because row module orientations are inconsistent.",
+        suggestedMitigation: "Rotate rack or in-row modules so the row has a consistent front/rear direction.",
+        objectIds: row.modules.map((module) => module.sourceId),
+        position: { ...centerOfBounds(row.bounds), y: 1.2 }
+      });
+    }
+  }
+
+  if (detectedAisles.length > thermalZones.length) {
+    warnings.push({
+      id: "topology-zone-missing",
+      type: "thermal-zone-missing",
+      severity: "warning",
+      label: "Detected aisle has no 3D thermal zone",
+      message: "An aisle was detected in Plan View but a matching 3D thermal zone was not generated.",
+      suggestedMitigation: "Run Detect Aisles again or review row orientation before simulation.",
+      objectIds: detectedAisles.flatMap((aisle) => aisle.rackIds),
+      position: { x: scenario.room.width / 2, y: 1.2, z: scenario.room.depth / 2 }
+    });
+  }
+
+  const hotZones = thermalZones.filter((zone) => zone.aisleType === "hot");
+  for (const module of rowModules.filter((candidate) => candidate.type === "in-row-cooling")) {
+    const hotZone = hotZones.find((zone) => zone.associatedRowIds.includes(module.rowId) || pointInsideOrNearBounds(module.position, zone.floorBounds, 0.75));
+    if (!hotZone) continue;
+    const vectorToZone = normalize2d({ x: hotZone.center.x - module.position.x, y: 0, z: hotZone.center.z - module.position.z });
+    if (vectorMagnitude2d(vectorToZone) > 0.01 && dot2(module.rearSide, vectorToZone) < 0.18) {
+      warnings.push({
+        id: `topology-inrow-intake-${module.sourceId}`,
+        type: "inrow-intake-mismatch",
+        severity: "warning",
+        label: "In-row intake side mismatch",
+        message: "In-row cooling intake side does not face the detected hot aisle.",
+        suggestedMitigation: "Rotate the in-row cooling unit so its return side faces the hot aisle.",
+        objectIds: [module.sourceId],
+        position: module.position
+      });
+    }
+  }
+
+  for (const zone of thermalZones) {
+    if (zone.type === "contained-hot-aisle" && zone.allowedAirflowSinkIds.length === 0) {
+      warnings.push({
+        id: `topology-no-sink-${zone.id}`,
+        type: "contained-zone-no-sink",
+        severity: "warning",
+        label: "Contained hot aisle has no valid sink",
+        message: "Contained hot aisle has no valid return, in-row return, or cooling sink in the modeled zone.",
+        suggestedMitigation: "Add an in-row cooler, ceiling return, CRAC return path, or modeled opening for the contained hot aisle.",
+        objectIds: zone.associatedModuleIds,
+        position: zone.center
+      });
+    }
+  }
+
+  const containedHotZones = hotZones.filter((zone) => zone.containmentState === "contained");
+  if (containedHotZones.length > 0) {
+    const unzonedRacks = scenario.racks.filter((rack) => {
+      const exhaust = rackRearVector(rack);
+      const point = {
+        x: rack.position.x + exhaust.x * (rackFaceSpan(rack, exhaust) + 0.16),
+        y: Math.min(rack.size.height, 1.5),
+        z: rack.position.z + exhaust.z * (rackFaceSpan(rack, exhaust) + 0.16)
+      };
+      return !containedHotZones.some((zone) => pointInThermalZone(point, zone) || pointInsideOrNearBounds(point, zone.floorBounds, 0.42));
+    });
+    if (unzonedRacks.length > 0) {
+      warnings.push({
+        id: "topology-rack-exhaust-unzoned",
+        type: "rack-exhaust-unzoned",
+        severity: "info",
+        label: "Rack exhaust is not connected to a hot aisle zone",
+        message: `${unzonedRacks.length} rack exhaust point(s) are not adjacent to the contained hot aisle zone.`,
+        suggestedMitigation: "Review rack orientation and detected hot aisle geometry before relying on containment-constrained airflow.",
+        objectIds: unzonedRacks.map((rack) => rack.id),
+        position: unzonedRacks[0]?.position ?? { x: scenario.room.width / 2, y: 1.2, z: scenario.room.depth / 2 }
+      });
+    }
+  }
+
+  return warnings;
+}
+
+function inferRackRowIdentity(rack: Rack, fallbackIndex: number): { rowId: string; slotIndex: number } {
+  const match = rack.arrayId ? rack.id.match(/-r(\d+)c(\d+)/) : undefined;
+  if (match) {
+    return {
+      rowId: `${rack.arrayId}-row-${Number(match[1])}`,
+      slotIndex: Number(match[2]) - 1
+    };
+  }
+  return {
+    rowId: derivedRowId(rack.orientation, rack.position),
+    slotIndex: fallbackIndex
+  };
+}
+
+function inferCoolingRowIdentity(object: CoolingObject, orientation: RackOrientation, fallbackIndex: number): { rowId: string; slotIndex: number } {
+  if (object.rowId) return { rowId: object.rowId, slotIndex: object.slotIndex ?? fallbackIndex };
+  const convertedRackMatch = object.id.match(/^in-row-from-(.*-r(\d+)c(\d+).*)$/);
+  if (convertedRackMatch) {
+    const sourceRackId = convertedRackMatch[1];
+    const sourceArrayMatch = sourceRackId.match(/^(.*)-r(\d+)c(\d+)/);
+    if (sourceArrayMatch) {
+      return {
+        rowId: `${sourceArrayMatch[1]}-row-${Number(sourceArrayMatch[2])}`,
+        slotIndex: Number(sourceArrayMatch[3]) - 1
+      };
+    }
+  }
+  return { rowId: derivedRowId(orientation, object.position), slotIndex: object.slotIndex ?? fallbackIndex };
+}
+
+function derivedRowId(orientation: RackOrientation, position: Vector3): string {
+  const axis = rowAxisForOrientation(orientation);
+  const lateral = axis === "x" ? position.z : position.x;
+  return `derived-${axis}-${orientation}-${Math.round(lateral / 0.5)}`;
+}
+
+export function orientationFromDirection(direction: Vector3): RackOrientation {
+  if (Math.abs(direction.x) >= Math.abs(direction.z)) return direction.x >= 0 ? "front-positive-x" : "front-negative-x";
+  return direction.z >= 0 ? "front-positive-z" : "front-negative-z";
+}
+
+function dominantOrientation(modules: RowModule[]): RackOrientation {
+  const counts = new Map<RackOrientation, number>();
+  for (const module of modules) counts.set(module.orientation, (counts.get(module.orientation) ?? 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? modules[0]?.orientation ?? "front-positive-z";
+}
+
+function rowAxisForOrientation(orientation: RackOrientation): "x" | "z" {
+  const front = orientationVector(orientation);
+  return Math.abs(front.z) >= Math.abs(front.x) ? "x" : "z";
+}
+
+function rectBoundsFromModules(modules: RowModule[]): RectBounds {
+  return modules.reduce(
+    (bounds, module) => ({
+      minX: Math.min(bounds.minX, module.position.x - module.size.width / 2),
+      maxX: Math.max(bounds.maxX, module.position.x + module.size.width / 2),
+      minZ: Math.min(bounds.minZ, module.position.z - module.size.depth / 2),
+      maxZ: Math.max(bounds.maxZ, module.position.z + module.size.depth / 2)
+    }),
+    { minX: Number.POSITIVE_INFINITY, maxX: Number.NEGATIVE_INFINITY, minZ: Number.POSITIVE_INFINITY, maxZ: Number.NEGATIVE_INFINITY }
+  );
+}
+
+function rectBoundsFromCenterSize(center: Vector3, size: Size3): RectBounds {
+  return {
+    minX: center.x - size.width / 2,
+    maxX: center.x + size.width / 2,
+    minZ: center.z - size.depth / 2,
+    maxZ: center.z + size.depth / 2
+  };
+}
+
+function centerOfBounds(bounds: RectBounds): Vector3 {
+  return { x: (bounds.minX + bounds.maxX) / 2, y: 0, z: (bounds.minZ + bounds.maxZ) / 2 };
+}
+
+function findAisleContainment(aisle: DetectedAisle, containmentObjects: ContainmentObject[]): ContainmentObject | undefined {
+  const expectedTypes = aisle.type === "hot" ? ["hot-aisle", "full-aisle"] : ["cold-aisle", "full-aisle"];
+  return containmentObjects.find((object) => {
+    if (!object.enabled || !expectedTypes.includes(object.type)) return false;
+    const generatedIds = object.generatedFromRackIds ?? [];
+    if (generatedIds.some((id) => aisle.rackIds.includes(id))) return true;
+    const bounds = rectBoundsFromCenterSize(object.position, object.size);
+    return overlapArea(bounds, rectBoundsFromCenterSize(aisle.center, aisle.size)) > 0.08;
+  });
+}
+
+function pointInsideOrNearBounds(point: Vector3, bounds: RectBounds, margin: number): boolean {
+  return point.x >= bounds.minX - margin && point.x <= bounds.maxX + margin && point.z >= bounds.minZ - margin && point.z <= bounds.maxZ + margin;
+}
+
+function overlapArea(a: RectBounds, b: RectBounds): number {
+  const width = Math.max(0, Math.min(a.maxX, b.maxX) - Math.max(a.minX, b.minX));
+  const depth = Math.max(0, Math.min(a.maxZ, b.maxZ) - Math.max(a.minZ, b.minZ));
+  return width * depth;
+}
+
+function distance2d(a: Vector3, b: Vector3): number {
+  return Math.hypot(a.x - b.x, a.z - b.z);
+}
+
+function normalize2d(vector: Vector3): Vector3 {
+  const magnitude = vectorMagnitude2d(vector);
+  return magnitude < 1e-6 ? { x: 0, y: 0, z: 0 } : { x: vector.x / magnitude, y: 0, z: vector.z / magnitude };
+}
+
+function vectorMagnitude2d(vector: Vector3): number {
+  return Math.hypot(vector.x, vector.z);
+}
+
+function rackFaceSpan(rack: Pick<Rack, "size">, direction: Vector3): number {
+  return Math.abs(direction.x) > Math.abs(direction.z) ? rack.size.width / 2 : rack.size.depth / 2;
 }
 
 function detectAisleBetweenRacks(rackA: Rack, rackB: Rack, room: Room): DetectedAisle | undefined {
@@ -524,6 +1063,11 @@ export function createCoolingObject(type: CoolingObjectType, index: number, room
         position: { x: room.width / 2, y: 1, z: room.depth * 0.48 },
         size: { width: 0.6, depth: 1.2, height: 2.2 },
         direction: { x: 0, y: 0, z: 1 },
+        orientation: "front-positive-z",
+        rowModuleType: "in-row-cooling",
+        intakeSide: "rear",
+        supplySide: "front",
+        coolingModeSemantic: "hot-side-return-cold-side-supply",
         supplyTemperatureC: 18,
         airflowLps: 900,
         coolingCapacityKw: 25,
