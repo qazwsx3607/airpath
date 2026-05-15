@@ -1,4 +1,4 @@
-# Engineering Memo: Vercel Deployment Attempt
+# Engineering Memo: Vercel Deployment
 
 Version: v0.4 deployment  
 Date: 2026-05-15  
@@ -7,41 +7,42 @@ Area: Deployment / Vercel
 
 ## 1. Summary
 
-Status: Blocked - Vercel authentication required.
+Status: Ready.
 
-AirPath passed the required local validation gate, and the repository has an existing Vercel configuration for the monorepo root. Vercel CLI was installed successfully, but deployment could not proceed because no non-interactive Vercel authentication was available.
+AirPath has been deployed successfully to Vercel through the Vercel dashboard using a GitHub import from the `main` branch.
 
-Required next action:
+Production URL:
 
 ```txt
-Run vercel login on the AI host, or provide VERCEL_TOKEN.
+https://airpath-ten.vercel.app
 ```
+
+The previous authentication blocker was resolved manually through the Vercel dashboard. No secrets were printed, stored, or committed.
 
 ## 2. Deployment Method Used
 
-Planned method:
+Deployment method:
 
-- Vercel CLI from the AirPath repository root.
-- Project name: `airpath`.
-- Preview deployment first, then production deployment.
+- Vercel dashboard import from GitHub.
 
-Actual method:
+Project name:
 
-- Deployment was not started because authentication was unavailable.
+- `airpath`
+
+Source branch:
+
+- `main`
 
 ## 3. CLI and Auth
 
 | Item | Result |
 |---|---|
-| Vercel CLI already installed | No |
-| Vercel CLI install action | Installed with `npm.cmd i -g vercel` |
+| Vercel CLI already installed during original automation attempt | No |
+| Vercel CLI install action during original automation attempt | Installed with `npm.cmd i -g vercel` |
 | Vercel CLI version after install | `54.0.0` |
-| Auth mode used | Blocked / login required |
-| `VERCEL_TOKEN` | Not present |
-| Local Vercel login/session | Not available |
-| `vercel whoami` | Did not complete in non-interactive mode |
-
-No token values were printed, stored, or committed.
+| Auth mode used for successful deployment | Vercel dashboard / manual GitHub import |
+| Previous auth blocker | Resolved manually through Vercel dashboard |
+| Secrets stored or committed | No |
 
 ## 4. Project Configuration
 
@@ -78,7 +79,7 @@ apps/web/dist
 
 ## 5. Validation Results
 
-Required checks were run before deployment attempt:
+Required checks were run before the original deployment attempt:
 
 | Command | Result |
 |---|---|
@@ -91,19 +92,21 @@ Required checks were run before deployment attempt:
 
 | URL Type | Result |
 |---|---|
-| Preview URL | Not created - authentication blocked |
-| Production URL | Not created - authentication blocked |
+| Preview URL | Not recorded; deployment was completed through dashboard |
+| Production URL | `https://airpath-ten.vercel.app` |
 
 ## 7. Verification Result
 
-Production verification was not possible because production deployment was not created.
+Production URL verification:
 
-Local validation succeeded. Vercel deployment is blocked only by authentication.
+- `curl.exe -I https://airpath-ten.vercel.app`
+- Result: HTTP `200 OK`
+- Server: Vercel
 
 ## 8. Known Limitations
 
-- A public production URL cannot be produced until Vercel authentication is available.
-- If Vercel creates `.vercel/` project-link metadata after login/linking, it must remain uncommitted.
+- Preview deployment URL was not captured because the deployment was completed manually through the Vercel dashboard.
+- Deployment is public and suitable for demo review, but AirPath remains a conceptual pre-sales thermal risk review tool and not certified CFD.
 
 ## 9. Config Changes
 
@@ -113,19 +116,19 @@ Vercel config files added or changed:
 
 Repository safety changes:
 
-- `.gitignore` was updated to ignore `.vercel/`.
+- `.gitignore` ignores `.vercel/`.
 
 `.vercel/` handling:
 
-- `.vercel/` was not present during this blocked attempt.
-- `.vercel/` is now explicitly kept out of git.
+- `.vercel/` was kept out of git.
+- No local Vercel credential artifacts were committed.
 
 ## 10. Handoff
 
-Status: Blocked - Vercel authentication required.
+Status: Ready.
 
-Next action for user:
+Production URL:
 
 ```txt
-Run vercel login on the AI host, or provide VERCEL_TOKEN.
+https://airpath-ten.vercel.app
 ```
