@@ -26,6 +26,35 @@ describe("solver core validation cases", () => {
     );
   });
 
+  it("samples rack inlet temperature near the configured rack front side", () => {
+    const scenario = scenarioWithOneRack(18);
+    scenario.racks[0] = { ...scenario.racks[0], orientation: "front-negative-z" };
+    const result = solveScenario(scenario);
+    const inletSample = result.rackInlets[0].position;
+    expect(inletSample.z).toBeLessThan(scenario.racks[0].position.z);
+  });
+
+  it("applies rack heat nearer the configured rear exhaust side than the front side", () => {
+    const scenario = scenarioWithOneRack(34);
+    scenario.racks[0] = { ...scenario.racks[0], orientation: "front-negative-z" };
+    scenario.coolingObjects = [];
+    const result = solveScenario(scenario);
+    const rack = scenario.racks[0];
+    const frontSample = {
+      x: rack.position.x,
+      y: rack.size.height * 0.62,
+      z: rack.position.z - rack.size.depth / 2 - 0.35
+    };
+    const rearSample = {
+      x: rack.position.x,
+      y: rack.size.height * 0.62,
+      z: rack.position.z + rack.size.depth / 2 + 0.35
+    };
+    expect(sampleTemperatureField(result.temperatureFieldC, result.grid, rearSample)).toBeGreaterThan(
+      sampleTemperatureField(result.temperatureFieldC, result.grid, frontSample)
+    );
+  });
+
   it("models cooling sources reducing adjacent temperature", () => {
     const withoutCooling = scenarioWithOneRack(8);
     withoutCooling.coolingObjects = [];

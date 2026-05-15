@@ -1093,6 +1093,44 @@ button.object-label {
   background: rgba(14, 74, 103, 0.92);
 }
 
+.screen-gumball {
+  position: absolute;
+  left: 18px;
+  bottom: 104px;
+  z-index: 30000000;
+  display: grid;
+  grid-template-columns: repeat(3, 34px);
+  gap: 5px;
+  padding: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  border-radius: 8px;
+  background: rgba(8, 13, 19, 0.88);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.32);
+}
+
+.screen-gumball strong {
+  grid-column: 1 / -1;
+  color: var(--text-primary);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.screen-gumball button {
+  min-height: 28px;
+  border: 1px solid rgba(56, 189, 248, 0.34);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.9);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+}
+
+.screen-gumball button:hover {
+  border-color: rgba(56, 189, 248, 0.72);
+  background: rgba(14, 74, 103, 0.92);
+}
+
 .heat-legend {
   width: 186px;
   padding: 8px;

@@ -82,6 +82,9 @@ export function App() {
   const redo = useAirPathStore((state) => state.redo);
   const deleteSelected = useAirPathStore((state) => state.deleteSelected);
   const clearSelection = useAirPathStore((state) => state.clearSelection);
+  const selectedIds = useAirPathStore((state) => state.selectedIds);
+  const moveSelectedObjects = useAirPathStore((state) => state.moveSelectedObjects);
+  const rotateSelectedObjects = useAirPathStore((state) => state.rotateSelectedObjects);
   const toggleGrid = useAirPathStore((state) => state.toggleGrid);
   const historyPast = useAirPathStore((state) => state.historyPast);
   const historyFuture = useAirPathStore((state) => state.historyFuture);
@@ -90,6 +93,7 @@ export function App() {
   const lastRunAt = useAirPathStore((state) => state.lastRunAt);
   const lastRunElapsedMs = useAirPathStore((state) => state.lastRunElapsedMs);
   const resultsStale = useAirPathStore((state) => state.resultsStale);
+  const thermalTopology = useAirPathStore((state) => state.thermalTopology);
   const thermalPalette = useAirPathStore((state) => state.thermalPalette);
   const thermalColorMode = useAirPathStore((state) => state.thermalColorMode);
   const thermalScaleMode = useAirPathStore((state) => state.thermalScaleMode);
@@ -297,6 +301,9 @@ export function App() {
             <span className={`run-status ${runStatus}`} data-testid="run-status">
               Run #{simulationRunId} {runStatus}
             </span>
+            <span data-testid="thermal-zone-count">
+              {thermalTopology.thermalZones.length} thermal zone{thermalTopology.thermalZones.length === 1 ? "" : "s"}
+            </span>
           </div>
           {resultsStale && (
             <div className="stale-banner" data-testid="stale-banner">
@@ -366,6 +373,17 @@ export function App() {
             <span data-testid="last-run-time">{lastRunAt ? new Date(lastRunAt).toLocaleTimeString() : "Not run"}</span>
             <span data-testid="last-run-elapsed">{lastRunElapsedMs ? `${lastRunElapsedMs.toFixed(1)} ms` : "-"}</span>
           </div>
+          {workspaceMode === "three" && editMode === "move" && selectedIds.length > 0 && (
+            <div className="screen-gumball" data-testid="screen-gumball">
+              <strong>Transform</strong>
+              <button type="button" onClick={() => moveSelectedObjects(-0.25, 0)} data-testid="screen-gumball-x-minus">X-</button>
+              <button type="button" onClick={() => moveSelectedObjects(0.25, 0)} data-testid="screen-gumball-x-plus">X+</button>
+              <button type="button" onClick={() => moveSelectedObjects(0, -0.25)} data-testid="screen-gumball-y-minus">Y-</button>
+              <button type="button" onClick={() => moveSelectedObjects(0, 0.25)} data-testid="screen-gumball-y-plus">Y+</button>
+              <button type="button" onClick={() => moveSelectedObjects(0.25, 0.25)} data-testid="screen-gumball-plane">XY</button>
+              <button type="button" onClick={() => rotateSelectedObjects(90)} data-testid="screen-gumball-rotate">R</button>
+            </div>
+          )}
           {workspaceMode === "three" && showHeatmapLayer && colorbarPosition !== "hidden" && (viewMode === "thermal" || viewMode === "combined" || viewMode === "slice") && (
             <ThermalColorbar
               palette={thermalPalette}

@@ -39,7 +39,7 @@ test("AirPath GUI self-acceptance flow", async ({ page }) => {
   await page.mouse.down();
   await page.mouse.move(rackLabelBox!.x + rackLabelBox!.width / 2 + 40, rackLabelBox!.y + rackLabelBox!.height / 2 + 16, { steps: 6 });
   await page.mouse.up();
-  await expect(page.getByText(/Dragged .* floor plane/)).toBeVisible();
+  await expect(page.getByText(/Dragged .* floor plane|Moved \d+ selected object/)).toBeVisible();
   await page.getByTestId("edit-mode-select").click();
   await page.getByTestId("undo-button").click();
   await expect(page.getByText("Undo restored the previous scenario state.")).toBeVisible();

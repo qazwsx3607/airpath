@@ -152,6 +152,26 @@ describe("scenario schema", () => {
     const topology = analyzeThermalTopology(scenario);
     expect(topology.warnings.map((warning) => warning.type)).toContain("ambiguous-aisle-orientation");
   });
+
+  it("warns when in-row cooling intake faces away from the detected hot aisle", () => {
+    const scenario = createDefaultScenario("medium");
+    scenario.racks = buildTwoRows(6);
+    const converted = scenario.racks[2];
+    const inRow = {
+      ...createCoolingObject("in-row-cooler", 1, scenario.room),
+      id: `wrong-way-${converted.id}`,
+      position: { ...converted.position },
+      size: { ...converted.size },
+      orientation: "front-positive-z" as const,
+      direction: { x: 0, y: 0, z: 1 },
+      rowId: `${converted.arrayId}-row-1`,
+      slotIndex: 2
+    };
+    scenario.racks = scenario.racks.filter((rack) => rack.id !== converted.id);
+    scenario.coolingObjects = [inRow];
+    const topology = analyzeThermalTopology(scenario);
+    expect(topology.warnings.map((warning) => warning.type)).toContain("inrow-intake-mismatch");
+  });
 });
 
 function buildTwoRows(columns: number) {
